@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ARCADE — Jungle Runner (Chicken)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Lora:wght@600;700&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:linear-gradient(135deg,#001a00,#0a2a0a);color:#c6f4c6;min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.hdr{text-align:center;padding:10px 12px 4px}
+.hdr h1{font-family:'Lora';font-size:20px;font-weight:700;background:linear-gradient(135deg,#16a34a,#84cc16);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stats{display:flex;justify-content:space-around;padding:6px 16px;font-size:11px;background:rgba(22,163,74,0.04);border-top:1px solid rgba(22,163,74,0.12);border-bottom:1px solid rgba(22,163,74,0.12)}
+.stats .lbl{color:#3d7a3d}.stats .val{font-weight:700;color:#84cc16}.stats .val.neg{color:#ef4444}
+.game-area{flex:1;position:relative;overflow:hidden;min-height:280px}
+canvas#gc{width:100%;height:100%}
+.mult-bar{position:absolute;top:8px;left:50%;transform:translateX(-50%);font-family:'Lora';font-size:22px;font-weight:700;color:#84cc16;text-shadow:0 0 12px rgba(132,204,22,0.5);z-index:10;pointer-events:none}
+.ctrls{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(22,163,74,0.03);border-top:1px solid rgba(22,163,74,0.1)}
+.brow{display:flex;gap:4px;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(22,163,74,0.15);background:transparent;color:#c6f4c6;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover,.bb.on{background:#16a34a;border-color:#16a34a;color:#fff}
+.play-btn{width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#16a34a,#84cc16);color:#fff;font-family:'Lora';font-size:15px;font-weight:700;cursor:pointer;text-transform:uppercase;transition:all .15s}
+.play-btn:hover{box-shadow:0 4px 20px rgba(22,163,74,0.3)}.play-btn:disabled{opacity:.4;cursor:not-allowed}
+.play-btn.cashout{background:linear-gradient(135deg,#f59e0b,#eab308);animation:pulseCh .6s ease-in-out infinite alternate}
+@keyframes pulseCh{from{box-shadow:0 0 10px rgba(245,158,11,0.2)}to{box-shadow:0 0 25px rgba(245,158,11,0.4)}}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>🌿 JUNGLE RUNNER</h1></div>
+<div class="stats">
+  <div><span class="lbl">Balance </span><span class="val" id="s-bal">$1,000.00</span></div>
+  <div><span class="lbl">Bet </span><span class="val" id="s-bet">$1.00</span></div>
+  <div><span class="lbl">Profit </span><span class="val" id="s-pft">$0.00</span></div>
+</div>
+<div class="game-area" id="game-area">
+  <canvas id="gc"></canvas>
+  <div class="mult-bar" id="mult-bar">1.00x</div>
+</div>
+<div class="ctrls">
+  <div class="brow" id="bet-row"></div>
+  <button class="play-btn" id="play-btn" onclick="onPlay()">🌿 START RUN</button>
+</div>
+
+<script>
+"use strict";
+const TAU=Math.PI*2,clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v,lerp=(a,b,t)=>a+(b-a)*t;
+function rgba(hex,a){const n=parseInt(hex.replace('#',''),16);return`rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`}
+
+// Audio
+let ac=null,aOk=false;
+async function initA(){if(aOk)return;try{ac=new(window.AudioContext||window.webkitAudioContext)();aOk=true}catch(e){}}
+function tone(o={}){if(!aOk)return;const c=ac,s=c.currentTime+(o.delay||0);const osc=c.createOscillator();osc.type=o.type||'sine';osc.frequency.value=o.freq||440;if(o.freqEnd){osc.frequency.setValueAtTime(o.freq,s);osc.frequency.exponentialRampToValueAtTime(Math.max(o.freqEnd,20),s+(o.dur||.1))}const env=c.createGain();env.gain.setValueAtTime(0,s);env.gain.linearRampToValueAtTime(o.vol||.15,s+.005);env.gain.linearRampToValueAtTime(0,s+(o.dur||.1));osc.connect(env);env.connect(c.destination);osc.start(s);osc.stop(s+(o.dur||.1)+.05)}
+function sfxStep(){tone({freq:250+Math.random()*50,dur:.05,type:'triangle',vol:.06})}
+function sfxSafe(lane){tone({freq:500+lane*80,dur:.12,type:'sine',vol:.12});tone({freq:750+lane*80,dur:.08,type:'sine',vol:.06,delay:.04})}
+function sfxHazard(){tone({freq:150,freqEnd:50,dur:.4,type:'sawtooth',vol:.18})}
+function sfxCashout(){for(let i=0;i<5;i++)tone({freq:[523,659,784,1047,1319][i],dur:.2,type:'triangle',vol:.2,delay:i*.08})}
+
+// Canvas
+const canvas=document.getElementById('gc'),ctx=canvas.getContext('2d');
+const container=document.getElementById('game-area');
+let W=0,H=0;
+function resize(){const r=container.getBoundingClientRect();W=r.width;H=r.height;canvas.width=Math.round(W*2);canvas.height=Math.round(H*2);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(2,0,0,2,0,0)}
+new ResizeObserver(resize).observe(container);resize();
+
+// State
+let balance=1000,currentBet=1,profit=0;
+let gameActive=false,currentLane=0,totalLanes=9,hazardsPerLane=1;
+let board=[],revealed=[],playerX=0,playerY=0,targetX=0,targetY=0;
+let animating=false,mult=1,busted=false;
+let shakeAmount=0,flashAlpha=0,flashColor='#fff';
+let particles=[];
+
+// Board: each lane has N columns, hazardsPerLane are hazards
+const COLS=4;
+function buildBoard(){
+  board=[];revealed=[];
+  for(let lane=0;lane<totalLanes;lane++){
+    const row=new Array(COLS).fill(0);
+    // Place hazards
+    const positions=[...Array(COLS).keys()];
+    for(let i=positions.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[positions[i],positions[j]]=[positions[j],positions[i]]}
+    for(let h=0;h<hazardsPerLane;h++)row[positions[h]]=1;
+    board.push(row);
+    revealed.push(new Array(COLS).fill(false));
+  }
+}
+
+function laneY(lane){return H-70-(lane+1)*(H-100)/(totalLanes+1)}
+function colX(col){const pad=40;return pad+col*((W-pad*2)/(COLS-1))}
+
+// Bets
+const bets=[0.10,0.25,0.50,1,2,5,10,25];
+document.getElementById('bet-row').innerHTML=bets.map(b=>`<button class="bb${b===1?' on':''}" onclick="setBet(${b},this)">$${b.toFixed(2)}</button>`).join('');
+function setBet(b,el){if(gameActive)return;currentBet=b;document.querySelectorAll('.bb').forEach(x=>x.classList.remove('on'));el.classList.add('on');updateUI()}
+function updateUI(){document.getElementById('s-bal').textContent='$'+balance.toFixed(2);document.getElementById('s-bet').textContent='$'+currentBet.toFixed(2);const p=document.getElementById('s-pft');p.textContent=(profit>=0?'+$':'-$')+Math.abs(profit).toFixed(2);p.className='val'+(profit<0?' neg':'')}
+
+async function onPlay(){
+  await initA();if(ac?.state==='suspended')await ac.resume();
+  const btn=document.getElementById('play-btn');
+  if(gameActive&&!animating&&!busted){
+    // Cashout
+    const winAmt=currentBet*mult-currentBet;balance+=currentBet*mult;profit+=winAmt;
+    gameActive=false;sfxCashout();
+    spawnParticles(playerX,playerY,'#ffd700',30);spawnParticles(playerX,playerY,'#22c55e',20);
+    if(navigator.vibrate)navigator.vibrate([10,20,10,20,30]);
+    btn.className='play-btn';btn.textContent='🌿 START RUN';
+    document.getElementById('mult-bar').textContent=mult.toFixed(2)+'x 💰';
+    updateUI();return;
+  }
+  if(balance<currentBet||animating)return;
+  balance-=currentBet;buildBoard();
+  currentLane=0;mult=1;busted=false;gameActive=true;
+  playerX=W/2;playerY=H-50;targetX=playerX;targetY=playerY;
+  btn.className='play-btn cashout';btn.textContent='💰 CASH OUT';
+  document.getElementById('mult-bar').textContent='1.00x';
+  updateUI();
+}
+
+function stepTo(col){
+  if(!gameActive||animating||busted||currentLane>=totalLanes)return;
+  const lane=currentLane;
+  revealed[lane][col]=true;animating=true;
+  sfxStep();
+  targetX=colX(col);targetY=laneY(lane);
+
+  setTimeout(()=>{
+    animating=false;
+    if(board[lane][col]===1){
+      // HAZARD
+      busted=true;gameActive=false;profit-=currentBet;
+      sfxHazard();shakeAmount=12;flashColor='#ef4444';flashAlpha=.3;
+      spawnParticles(targetX,targetY,'#ef4444',30);
+      if(navigator.vibrate)navigator.vibrate([100]);
+      document.getElementById('mult-bar').textContent='BUSTED 💀';
+      const btn=document.getElementById('play-btn');btn.className='play-btn';btn.textContent='🌿 START RUN';
+      // Reveal all hazards in this lane
+      for(let c=0;c<COLS;c++)revealed[lane][c]=true;
+      updateUI();
+    }else{
+      // SAFE
+      currentLane++;
+      mult=parseFloat((1+currentLane*0.4+currentLane*currentLane*0.05).toFixed(2));
+      sfxSafe(currentLane);
+      spawnParticles(targetX,targetY,'#84cc16',12);
+      flashColor='#22c55e';flashAlpha=.1;
+      if(navigator.vibrate)navigator.vibrate([10]);
+      document.getElementById('mult-bar').textContent=mult.toFixed(2)+'x';
+      if(currentLane>=totalLanes){
+        // Max reached — auto cashout
+        const winAmt=currentBet*mult-currentBet;balance+=currentBet*mult;profit+=winAmt;
+        gameActive=false;sfxCashout();
+        spawnParticles(targetX,targetY,'#ffd700',40);
+        document.getElementById('mult-bar').textContent=mult.toFixed(2)+'x 🏆';
+        const btn=document.getElementById('play-btn');btn.className='play-btn';btn.textContent='🌿 START RUN';
+        updateUI();
+      }
+    }
+  },300);
+}
+
+function spawnParticles(x,y,color,n){for(let i=0;i<n;i++){const a=Math.random()*TAU,s=50+Math.random()*150;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,sz:3+Math.random()*5,color})}}
+
+// Click handler
+canvas.addEventListener('click',e=>{
+  if(!gameActive||animating||busted||currentLane>=totalLanes)return;
+  const r=canvas.getBoundingClientRect();
+  const mx=(e.clientX-r.left),my=(e.clientY-r.top);
+  // Find which column clicked (in current lane row)
+  const lane=currentLane;
+  const ly=laneY(lane);
+  if(Math.abs(my-ly)>30)return; // Too far from lane
+  let bestCol=0,bestD=Infinity;
+  for(let c=0;c<COLS;c++){const cx=colX(c);const d=Math.abs(mx-cx);if(d<bestD){bestD=d;bestCol=c}}
+  if(bestD<50)stepTo(bestCol);
+});
+
+// Render
+let lastTime=performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt=Math.min((now-lastTime)/1000,.05);lastTime=now;
+
+  // Animate player position
+  playerX=lerp(playerX,targetX,1-Math.exp(-10*dt));
+  playerY=lerp(playerY,targetY,1-Math.exp(-10*dt));
+  // Shake
+  if(shakeAmount>0)shakeAmount=Math.max(0,shakeAmount-dt*30);
+  if(flashAlpha>0)flashAlpha=Math.max(0,flashAlpha-dt*3);
+  // Particles
+  for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt*2.5;if(p.life<=0){particles.splice(i,1);continue}p.vy+=400*dt;p.x+=p.vx*dt;p.y+=p.vy*dt}
+
+  // === RENDER ===
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  if(shakeAmount>0)ctx.translate(Math.sin(now*.03)*shakeAmount*(Math.random()*.5+.5),Math.cos(now*.033)*shakeAmount*(Math.random()*.5+.5));
+
+  // Background gradient
+  const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#001a00');bg.addColorStop(1,'#0a2a0a');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+
+  // Ambient foliage
+  for(let i=0;i<6;i++){ctx.globalAlpha=.03+Math.sin(now*.001+i)*.02;ctx.font='40px serif';ctx.fillText('🌿',10+i*60,20+Math.sin(now*.002+i*2)*10)}
+  ctx.globalAlpha=1;
+
+  // Lanes
+  for(let lane=0;lane<totalLanes;lane++){
+    const y=laneY(lane);
+    const isCurrentLane=lane===currentLane&&gameActive&&!busted;
+    const isPast=lane<currentLane;
+    const tension=gameActive?clamp(currentLane/totalLanes,0,1):0;
+
+    // Lane background
+    ctx.fillStyle=isCurrentLane?rgba('#16a34a',.08+Math.sin(now*.003)*.03):rgba('#16a34a',.03);
+    ctx.fillRect(0,y-18,W,36);
+
+    // Lane multiplier label
+    const laneMult=(1+(lane+1)*0.4+(lane+1)*(lane+1)*0.05).toFixed(1);
+    ctx.font='bold 9px Inter,sans-serif';ctx.textAlign='right';ctx.textBaseline='middle';
+    ctx.fillStyle=rgba('#84cc16',isPast?.3:isCurrentLane?.8:.4);
+    ctx.fillText(laneMult+'x',W-8,y);
+
+    // Spots
+    for(let c=0;c<COLS;c++){
+      const x=colX(c);
+      const isRevealed=revealed[lane][c];
+      const isHazard=board[lane][c]===1;
+
+      if(isRevealed){
+        if(isHazard){
+          // Hazard spot
+          ctx.beginPath();ctx.arc(x,y,16,0,TAU);ctx.fillStyle=rgba('#ef4444',.2);ctx.fill();
+          ctx.font='20px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('⚠️',x,y);
+        }else{
+          // Safe spot
+          ctx.beginPath();ctx.arc(x,y,16,0,TAU);ctx.fillStyle=rgba('#22c55e',.15);ctx.fill();
+          ctx.strokeStyle=rgba('#22c55e',.3);ctx.lineWidth=1.5;ctx.stroke();
+          ctx.font='16px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('🌿',x,y);
+        }
+      }else if(isCurrentLane){
+        // Clickable spot — glowing
+        const pulse=.5+Math.sin(now*.005+c)*.2;
+        ctx.beginPath();ctx.arc(x,y,16,0,TAU);ctx.fillStyle=rgba('#16a34a',.1+pulse*.1);ctx.fill();
+        ctx.strokeStyle=rgba('#84cc16',.3+pulse*.2);ctx.lineWidth=1.5;ctx.stroke();
+        ctx.font='14px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('❓',x,y);
+      }else if(isPast){
+        // Past unrevealed
+        ctx.beginPath();ctx.arc(x,y,10,0,TAU);ctx.fillStyle=rgba('#16a34a',.05);ctx.fill();
+      }else{
+        // Future — dim
+        ctx.beginPath();ctx.arc(x,y,12,0,TAU);ctx.fillStyle=rgba('#16a34a',.04);ctx.fill();
+        ctx.strokeStyle=rgba('#16a34a',.08);ctx.lineWidth=1;ctx.stroke();
+      }
+    }
+  }
+
+  // Player
+  const bobY=Math.sin(now*.006)*3;
+  ctx.font='28px serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  // Shadow
+  ctx.globalAlpha=.2;ctx.fillText('🏃',playerX,playerY+bobY+4);
+  ctx.globalAlpha=1;ctx.fillText('🏃',playerX,playerY+bobY);
+  // Player glow
+  const pg=ctx.createRadialGradient(playerX,playerY,0,playerX,playerY,25);
+  pg.addColorStop(0,rgba('#84cc16',.15));pg.addColorStop(1,'transparent');ctx.fillStyle=pg;ctx.fillRect(playerX-30,playerY-30,60,60);
+
+  // Start zone
+  ctx.font='bold 10px Inter';ctx.textAlign='center';ctx.fillStyle=rgba('#84cc16',.4);
+  ctx.fillText('START',W/2,H-35);
+
+  // Particles
+  for(const p of particles){if(p.life<=0)continue;ctx.globalAlpha=p.life;ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.sz*p.life,0,TAU);ctx.fill()}
+  ctx.globalAlpha=1;
+  ctx.restore();
+
+  // Flash
+  if(flashAlpha>0){ctx.save();ctx.globalAlpha=flashAlpha;ctx.fillStyle=flashColor;ctx.fillRect(0,0,W,H);ctx.restore()}
+}
+requestAnimationFrame(frame);
+updateUI();
+</script>
+</body>
+</html>

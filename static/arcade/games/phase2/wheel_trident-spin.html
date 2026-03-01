@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ARCADE — Trident Spin (Wheel)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:linear-gradient(135deg,#001520,#002030);color:#cce8f4;min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.hdr{text-align:center;padding:12px 12px 4px}
+.hdr h1{font-family:'Playfair Display';font-size:22px;font-weight:900;background:linear-gradient(135deg,#0891b2,#67e8f9);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stats{display:flex;justify-content:space-around;padding:6px 16px;font-size:11px;background:rgba(8,145,178,0.04);border-top:1px solid rgba(103,232,249,0.1);border-bottom:1px solid rgba(103,232,249,0.1)}
+.stats .lbl{color:#4a8a9e}.stats .val{font-weight:700;color:#67e8f9}.stats .val.neg{color:#ef4444}
+#wheel-container{flex:1;position:relative;display:flex;align-items:center;justify-content:center;min-height:300px;overflow:hidden}
+canvas#wc{max-width:100%;max-height:100%}
+.ctrls{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(8,145,178,0.03);border-top:1px solid rgba(103,232,249,0.1)}
+.brow{display:flex;gap:4px;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(103,232,249,0.15);background:transparent;color:#cce8f4;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover,.bb.on{background:#0891b2;border-color:#0891b2;color:#fff}
+.play-btn{width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#0891b2,#67e8f9);color:#fff;font-family:'Playfair Display';font-size:16px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all .15s}
+.play-btn:hover{box-shadow:0 4px 20px rgba(8,145,178,0.3)}.play-btn:disabled{opacity:.4;cursor:not-allowed}
+.result-bar{text-align:center;padding:6px;font-size:13px;min-height:28px;color:#67e8f9;font-weight:700}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>🔱 TRIDENT SPIN</h1></div>
+<div class="stats">
+  <div><span class="lbl">Balance </span><span class="val" id="s-bal">$1,000.00</span></div>
+  <div><span class="lbl">Bet </span><span class="val" id="s-bet">$1.00</span></div>
+  <div><span class="lbl">Profit </span><span class="val" id="s-pft">$0.00</span></div>
+</div>
+<div class="result-bar" id="result-bar"></div>
+<div id="wheel-container"><canvas id="wc"></canvas></div>
+<div class="ctrls">
+  <div class="brow" id="bet-row"></div>
+  <button class="play-btn" id="play-btn" onclick="spin()">🔱 SPIN</button>
+</div>
+
+<script>
+"use strict";
+const TAU=Math.PI*2,clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+function rgba(hex,a){const n=parseInt(hex.replace('#',''),16);return`rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`}
+
+// Audio
+let ac=null,aOk=false;
+async function initA(){if(aOk)return;try{ac=new(window.AudioContext||window.webkitAudioContext)();aOk=true}catch(e){}}
+function tone(o={}){if(!aOk)return;const c=ac,s=c.currentTime+(o.delay||0);const osc=c.createOscillator();osc.type=o.type||'sine';osc.frequency.value=o.freq||440;const env=c.createGain();env.gain.setValueAtTime(0,s);env.gain.linearRampToValueAtTime(o.vol||.15,s+.003);env.gain.linearRampToValueAtTime(0,s+(o.dur||.06));osc.connect(env);env.connect(c.destination);osc.start(s);osc.stop(s+(o.dur||.06)+.02)}
+function sfxTick(pitch){tone({freq:400+pitch*300,dur:.03,type:'triangle',vol:.08})}
+function sfxWin(big){if(big)for(let i=0;i<5;i++)tone({freq:[523,659,784,1047,1319][i],dur:.2,type:'triangle',vol:.2,delay:i*.1});else for(let i=0;i<3;i++)tone({freq:[523,659,784][i],dur:.15,type:'triangle',vol:.15,delay:i*.08})}
+function sfxBust(){tone({freq:200,dur:.2,type:'sawtooth',vol:.12})}
+
+// Segments
+const SEGMENTS=[
+  {mult:0,label:'BUST',color:'#1e293b',textColor:'#94a3b8'},
+  {mult:1.2,label:'1.2x',color:'#164e63',textColor:'#67e8f9'},
+  {mult:0,label:'BUST',color:'#1e293b',textColor:'#94a3b8'},
+  {mult:1.5,label:'1.5x',color:'#155e75',textColor:'#67e8f9'},
+  {mult:0,label:'BUST',color:'#1e293b',textColor:'#94a3b8'},
+  {mult:2,label:'2x',color:'#0e7490',textColor:'#ecfeff'},
+  {mult:0.5,label:'0.5x',color:'#134e4a',textColor:'#5eead4'},
+  {mult:3,label:'3x',color:'#0891b2',textColor:'#fff'},
+  {mult:0,label:'BUST',color:'#1e293b',textColor:'#94a3b8'},
+  {mult:1.2,label:'1.2x',color:'#164e63',textColor:'#67e8f9'},
+  {mult:5,label:'5x',color:'#0284c7',textColor:'#fff'},
+  {mult:0.5,label:'0.5x',color:'#134e4a',textColor:'#5eead4'},
+  {mult:0,label:'BUST',color:'#1e293b',textColor:'#94a3b8'},
+  {mult:1.5,label:'1.5x',color:'#155e75',textColor:'#67e8f9'},
+  {mult:10,label:'🔱10x',color:'#7c3aed',textColor:'#fff'},
+  {mult:0.5,label:'0.5x',color:'#134e4a',textColor:'#5eead4'},
+  {mult:0,label:'BUST',color:'#1e293b',textColor:'#94a3b8'},
+  {mult:2,label:'2x',color:'#0e7490',textColor:'#ecfeff'},
+  {mult:1.2,label:'1.2x',color:'#164e63',textColor:'#67e8f9'},
+  {mult:25,label:'💎25x',color:'#dc2626',textColor:'#fff'},
+];
+const N=SEGMENTS.length, segAngle=TAU/N;
+
+// Canvas
+const canvas=document.getElementById('wc'),ctx=canvas.getContext('2d');
+const container=document.getElementById('wheel-container');
+let CW=0,CH=0,R=0;
+function resize(){const r=container.getBoundingClientRect();CW=Math.min(r.width,r.height)-20;CH=CW;canvas.width=CW*2;canvas.height=CH*2;canvas.style.width=CW+'px';canvas.style.height=CH+'px';ctx.setTransform(2,0,0,2,0,0);R=CW/2-15}
+new ResizeObserver(resize).observe(container);resize();
+
+// State
+let balance=1000,currentBet=1,profit=0,spinning=false;
+let angle=0,angVel=0,targetSeg=-1,landedSeg=-1;
+let flashAlpha=0,flashColor='#fff',glowSeg=-1,glowAlpha=0;
+const bets=[0.10,0.25,0.50,1,2,5,10,25];
+document.getElementById('bet-row').innerHTML=bets.map((b,i)=>`<button class="bb${b===1?' on':''}" onclick="setBet(${b},this)">$${b.toFixed(2)}</button>`).join('');
+function setBet(b,el){currentBet=b;document.querySelectorAll('.bb').forEach(x=>x.classList.remove('on'));el.classList.add('on');updateUI()}
+function updateUI(){document.getElementById('s-bal').textContent='$'+balance.toFixed(2);document.getElementById('s-bet').textContent='$'+currentBet.toFixed(2);const p=document.getElementById('s-pft');p.textContent=(profit>=0?'+$':'-$')+Math.abs(profit).toFixed(2);p.className='val'+(profit<0?' neg':'')}
+
+// Which segment is at the pointer (top)?
+function getSegAtPointer(){const norm=(((-angle%(TAU))+TAU)%TAU);return Math.floor(norm/segAngle)%N}
+
+let lastTickSeg=-1;
+async function spin(){
+  if(spinning||balance<currentBet)return;
+  await initA();if(ac?.state==='suspended')await ac.resume();
+  spinning=true;balance-=currentBet;updateUI();
+  document.getElementById('play-btn').disabled=true;
+  document.getElementById('result-bar').textContent='';
+  glowSeg=-1;glowAlpha=0;landedSeg=-1;
+
+  // Pick result
+  targetSeg=Math.floor(Math.random()*N);
+  // Calculate target angle: spin several full rotations + land on target
+  const targetAngle=-(targetSeg*segAngle+segAngle/2)+TAU*rngI(4,7);
+  const totalSpin=targetAngle-angle;
+  angVel=totalSpin; // will decelerate over ~3s
+  lastTickSeg=-1;
+}
+
+function rngI(a,b){return Math.floor(a+Math.random()*(b-a+1))}
+
+// Animation
+let lastTime=performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt=Math.min((now-lastTime)/1000,.05);lastTime=now;
+
+  // Physics
+  if(spinning){
+    angVel*=Math.pow(0.985,dt*60); // friction
+    angle+=angVel*dt;
+
+    // Tick sounds
+    const seg=getSegAtPointer();
+    if(seg!==lastTickSeg){lastTickSeg=seg;sfxTick(SEGMENTS[seg].mult/25)}
+
+    // Landed
+    if(Math.abs(angVel)<0.02){
+      angVel=0;spinning=false;
+      landedSeg=getSegAtPointer();
+      const seg=SEGMENTS[landedSeg];
+      glowSeg=landedSeg;glowAlpha=1;
+
+      if(seg.mult>0){
+        const winAmt=currentBet*seg.mult-currentBet;balance+=currentBet*seg.mult;profit+=winAmt;
+        document.getElementById('result-bar').innerHTML=`<span style="color:#22c55e">🎉 ${seg.label} — +$${(currentBet*seg.mult-currentBet).toFixed(2)}</span>`;
+        sfxWin(seg.mult>=5);flashColor='#22c55e';flashAlpha=.25;
+        if(navigator.vibrate)navigator.vibrate([10,20,10,20,30]);
+      }else{
+        profit-=currentBet;
+        document.getElementById('result-bar').innerHTML=`<span style="color:#ef4444">💀 BUST</span>`;
+        sfxBust();flashColor='#ef4444';flashAlpha=.2;
+        if(navigator.vibrate)navigator.vibrate([80]);
+      }
+      updateUI();document.getElementById('play-btn').disabled=false;
+    }
+  }
+
+  // Decay effects
+  if(flashAlpha>0)flashAlpha=Math.max(0,flashAlpha-dt*3);
+  if(glowAlpha>0&&!spinning)glowAlpha=Math.max(0,glowAlpha-dt*.5);
+
+  // === RENDER ===
+  ctx.clearRect(0,0,CW,CH);
+  const cx=CW/2,cy=CH/2;
+
+  // Ambient glow
+  const ag=ctx.createRadialGradient(cx,cy,R*.3,cx,cy,R*1.2);
+  ag.addColorStop(0,rgba('#0891b2',.06));ag.addColorStop(1,'transparent');
+  ctx.fillStyle=ag;ctx.fillRect(0,0,CW,CH);
+
+  ctx.save();ctx.translate(cx,cy);ctx.rotate(angle);
+
+  // Draw segments
+  for(let i=0;i<N;i++){
+    const startA=i*segAngle-Math.PI/2;
+    const endA=startA+segAngle;
+    const seg=SEGMENTS[i];
+
+    // Segment fill
+    ctx.beginPath();ctx.moveTo(0,0);ctx.arc(0,0,R,startA,endA);ctx.closePath();
+    ctx.fillStyle=seg.color;ctx.fill();
+
+    // Borders
+    ctx.strokeStyle=rgba('#67e8f9',.15);ctx.lineWidth=1;ctx.stroke();
+
+    // Glow on landed segment
+    if(i===glowSeg&&glowAlpha>0){
+      ctx.save();ctx.globalAlpha=glowAlpha*.5;ctx.beginPath();ctx.moveTo(0,0);ctx.arc(0,0,R,startA,endA);ctx.closePath();
+      ctx.fillStyle=seg.mult>=5?'#f59e0b':seg.mult>0?'#22c55e':'#ef4444';ctx.fill();ctx.restore();
+    }
+
+    // Text
+    ctx.save();
+    const textAngle=startA+segAngle/2;
+    ctx.rotate(textAngle);ctx.translate(R*.65,0);ctx.rotate(Math.PI/2);
+    ctx.font=`bold ${seg.mult>=5?11:9}px Inter,sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=seg.textColor;ctx.fillText(seg.label,0,0);
+    ctx.restore();
+  }
+
+  // Center cap
+  const cg=ctx.createRadialGradient(0,0,5,0,0,25);
+  cg.addColorStop(0,'#67e8f9');cg.addColorStop(1,'#0e7490');
+  ctx.beginPath();ctx.arc(0,0,22,0,TAU);ctx.fillStyle=cg;ctx.fill();
+  ctx.strokeStyle=rgba('#67e8f9',.5);ctx.lineWidth=2;ctx.stroke();
+  ctx.font='bold 14px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.fillText('🔱',0,1);
+
+  // Outer ring
+  ctx.beginPath();ctx.arc(0,0,R,0,TAU);ctx.strokeStyle=rgba('#67e8f9',.2);ctx.lineWidth=3;ctx.stroke();
+  ctx.beginPath();ctx.arc(0,0,R+4,0,TAU);ctx.strokeStyle=rgba('#0891b2',.1);ctx.lineWidth=1;ctx.stroke();
+
+  ctx.restore();
+
+  // Pointer (fixed, at top)
+  ctx.save();
+  ctx.beginPath();ctx.moveTo(cx,cy-R-8);ctx.lineTo(cx-10,cy-R-22);ctx.lineTo(cx+10,cy-R-22);ctx.closePath();
+  const pg=ctx.createLinearGradient(cx,cy-R-22,cx,cy-R-8);
+  pg.addColorStop(0,'#f59e0b');pg.addColorStop(1,'#dc2626');
+  ctx.fillStyle=pg;ctx.fill();ctx.strokeStyle='#fbbf24';ctx.lineWidth=1;ctx.stroke();
+  // Pointer glow
+  ctx.shadowColor='#f59e0b';ctx.shadowBlur=10;ctx.fill();ctx.shadowBlur=0;
+  ctx.restore();
+
+  // Screen flash
+  if(flashAlpha>0){ctx.save();ctx.globalAlpha=flashAlpha;ctx.fillStyle=flashColor;ctx.fillRect(0,0,CW,CH);ctx.restore()}
+}
+requestAnimationFrame(frame);
+updateUI();
+</script>
+</body>
+</html>

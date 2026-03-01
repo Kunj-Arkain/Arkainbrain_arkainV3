@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ARCADE — Pharaoh's Fortune (HiLo)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:linear-gradient(135deg,#1a0f00,#2d1800);color:#f5deb3;min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.hdr{text-align:center;padding:12px 12px 4px}
+.hdr h1{font-family:'Cinzel';font-size:20px;font-weight:900;background:linear-gradient(135deg,#b8860b,#ffd700);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stats{display:flex;justify-content:space-around;padding:6px 16px;font-size:11px;background:rgba(184,134,11,0.04);border-top:1px solid rgba(184,134,11,0.12);border-bottom:1px solid rgba(184,134,11,0.12)}
+.stats .lbl{color:#8b6914}.stats .val{font-weight:700;color:#ffd700}.stats .val.neg{color:#ef4444}
+.game-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;padding:10px;overflow:hidden}
+canvas#fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
+.cards-row{display:flex;gap:16px;align-items:center;z-index:2;perspective:600px}
+.card{width:90px;height:130px;position:relative;transform-style:preserve-3d;transition:transform .5s cubic-bezier(.4,.2,.2,1.1);cursor:default}
+.card.flipping{transform:rotateY(180deg)}
+.card-face{position:absolute;inset:0;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;backface-visibility:hidden;border:2px solid rgba(184,134,11,0.3)}
+.card-front{background:linear-gradient(135deg,#3d2000,#5c3000);font-size:36px;font-weight:900;font-family:'Cinzel'}
+.card-front .suit{font-size:14px;margin-top:4px}
+.card-back{transform:rotateY(180deg);background:linear-gradient(135deg,#b8860b,#8b6914);background-image:repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(0,0,0,0.05) 8px,rgba(0,0,0,0.05) 16px)}
+.card-back::after{content:'𓂀';font-size:32px;color:rgba(255,215,0,0.3)}
+.card.big{width:110px;height:155px;font-size:42px}
+.streak{font-family:'Cinzel';font-size:18px;color:#ffd700;text-align:center;margin:8px 0;min-height:24px;text-shadow:0 0 10px rgba(255,215,0,0.4)}
+.mult-display{font-family:'Cinzel';font-size:28px;color:#ffd700;text-shadow:0 0 15px rgba(255,215,0,0.5);min-height:36px;text-align:center;margin:4px 0;z-index:2}
+.choice-row{display:flex;gap:12px;margin:10px 0;z-index:2}
+.choice-btn{padding:14px 28px;border-radius:10px;border:2px solid rgba(184,134,11,0.3);background:rgba(184,134,11,0.08);color:#ffd700;font-family:'Cinzel';font-size:14px;font-weight:700;cursor:pointer;transition:all .15s}
+.choice-btn:hover{background:rgba(184,134,11,0.2);border-color:#ffd700;box-shadow:0 0 15px rgba(255,215,0,0.2)}
+.choice-btn:disabled{opacity:.3;cursor:not-allowed}
+.ctrls{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(184,134,11,0.03);border-top:1px solid rgba(184,134,11,0.1)}
+.brow{display:flex;gap:4px;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(184,134,11,0.15);background:transparent;color:#f5deb3;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover,.bb.on{background:#b8860b;border-color:#b8860b;color:#fff}
+.play-btn{width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#b8860b,#ffd700);color:#1a0f00;font-family:'Cinzel';font-size:16px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all .15s}
+.play-btn:hover{box-shadow:0 4px 20px rgba(184,134,11,0.3)}.play-btn:disabled{opacity:.4;cursor:not-allowed}
+.play-btn.cashout{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;animation:pulse .6s ease-in-out infinite alternate}
+@keyframes pulse{from{box-shadow:0 0 10px rgba(34,197,94,0.2)}to{box-shadow:0 0 25px rgba(34,197,94,0.4)}}
+.result-msg{text-align:center;font-size:13px;min-height:20px;color:#8b6914;z-index:2}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>𓂀 PHARAOH'S FORTUNE</h1></div>
+<div class="stats">
+  <div><span class="lbl">Balance </span><span class="val" id="s-bal">$1,000.00</span></div>
+  <div><span class="lbl">Bet </span><span class="val" id="s-bet">$1.00</span></div>
+  <div><span class="lbl">Profit </span><span class="val" id="s-pft">$0.00</span></div>
+</div>
+<div class="game-area" id="game-area">
+  <canvas id="fx"></canvas>
+  <div class="streak" id="streak"></div>
+  <div class="mult-display" id="mult-disp">1.00x</div>
+  <div class="cards-row" id="cards-row"></div>
+  <div class="result-msg" id="result-msg"></div>
+  <div class="choice-row" id="choice-row">
+    <button class="choice-btn" id="btn-hi" onclick="guess('higher')" disabled>📈 Higher</button>
+    <button class="choice-btn" id="btn-lo" onclick="guess('lower')" disabled>📉 Lower</button>
+  </div>
+</div>
+<div class="ctrls">
+  <div class="brow" id="bet-row"></div>
+  <button class="play-btn" id="play-btn" onclick="onPlay()">START ROUND</button>
+</div>
+
+<script>
+"use strict";
+const clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+
+// Audio
+let ac=null,aOk=false;
+async function initA(){if(aOk)return;try{ac=new(window.AudioContext||window.webkitAudioContext)();aOk=true}catch(e){}}
+function tone(o={}){if(!aOk)return;const c=ac,s=c.currentTime+(o.delay||0);const osc=c.createOscillator();osc.type=o.type||'sine';osc.frequency.value=o.freq||440;if(o.freqEnd){osc.frequency.setValueAtTime(o.freq,s);osc.frequency.exponentialRampToValueAtTime(Math.max(o.freqEnd,20),s+(o.dur||.1))}const env=c.createGain();env.gain.setValueAtTime(0,s);env.gain.linearRampToValueAtTime(o.vol||.15,s+.005);env.gain.linearRampToValueAtTime(0,s+(o.dur||.1));osc.connect(env);env.connect(c.destination);osc.start(s);osc.stop(s+(o.dur||.1)+.05)}
+function sfxFlip(){const c=ac;if(!aOk)return;const now=c.currentTime,sz=c.sampleRate*.06,buf=c.createBuffer(1,sz,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<sz;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const env=c.createGain();env.gain.setValueAtTime(.1,now);env.gain.exponentialRampToValueAtTime(.001,now+.06);const f=c.createBiquadFilter();f.type='highpass';f.frequency.value=3000;src.connect(f);f.connect(env);env.connect(c.destination);src.start(now);src.stop(now+.06)}
+function sfxCorrect(streak){tone({freq:600+streak*100,dur:.12,type:'triangle',vol:.15});tone({freq:900+streak*100,dur:.1,type:'sine',vol:.08,delay:.05})}
+function sfxWrong(){tone({freq:200,freqEnd:60,dur:.4,type:'sawtooth',vol:.15});const c=ac;if(!aOk)return;const now=c.currentTime,sz=c.sampleRate*.2,buf=c.createBuffer(1,sz,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<sz;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const env=c.createGain();env.gain.setValueAtTime(.12,now);env.gain.exponentialRampToValueAtTime(.001,now+.2);const f=c.createBiquadFilter();f.type='highpass';f.frequency.value=2000;src.connect(f);f.connect(env);env.connect(c.destination);src.start(now);src.stop(now+.2)}
+function sfxCashout(){for(let i=0;i<5;i++)tone({freq:[523,659,784,1047,1319][i],dur:.2,type:'triangle',vol:.2,delay:i*.08})}
+
+// FX Canvas
+const fxC=document.getElementById('fx'),fxX=fxC.getContext('2d');
+function resizeFx(){const r=document.getElementById('game-area').getBoundingClientRect();fxC.width=r.width;fxC.height=r.height}
+new ResizeObserver(resizeFx).observe(document.getElementById('game-area'));resizeFx();
+let particles=[];
+function spawnP(x,y,color,n=15,speed=150){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=40+Math.random()*speed;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,sz:3+Math.random()*5,color})}}
+let lastT=performance.now();
+function fxLoop(now){requestAnimationFrame(fxLoop);const dt=Math.min((now-lastT)/1000,.05);lastT=now;fxX.clearRect(0,0,fxC.width,fxC.height);for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt*2;if(p.life<=0){particles.splice(i,1);continue}p.vy+=350*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;fxX.globalAlpha=p.life;fxX.fillStyle=p.color;fxX.beginPath();fxX.arc(p.x,p.y,p.sz*p.life,0,Math.PI*2);fxX.fill()}}
+requestAnimationFrame(fxLoop);
+
+// Cards
+const SUITS=['♠','♥','♦','♣'];const SUIT_COLORS={'♠':'#e0e0e0','♥':'#ef4444','♦':'#ef4444','♣':'#e0e0e0'};
+const VALUES=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const VAL_NUM={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
+function randomCard(){return{value:VALUES[Math.floor(Math.random()*13)],suit:SUITS[Math.floor(Math.random()*4)]}}
+
+// State
+let balance=1000,currentBet=1,profit=0;
+let gameActive=false,currentCard=null,streak=0,mult=1;
+const bets=[0.10,0.25,0.50,1,2,5,10,25];
+document.getElementById('bet-row').innerHTML=bets.map((b)=>`<button class="bb${b===1?' on':''}" onclick="setBet(${b},this)">$${b.toFixed(2)}</button>`).join('');
+function setBet(b,el){if(gameActive)return;currentBet=b;document.querySelectorAll('.bb').forEach(x=>x.classList.remove('on'));el.classList.add('on');updateUI()}
+function updateUI(){document.getElementById('s-bal').textContent='$'+balance.toFixed(2);document.getElementById('s-bet').textContent='$'+currentBet.toFixed(2);const p=document.getElementById('s-pft');p.textContent=(profit>=0?'+$':'-$')+Math.abs(profit).toFixed(2);p.className='val'+(profit<0?' neg':'')}
+
+function renderCards(){
+  // Show current card
+  const row=document.getElementById('cards-row');
+  row.innerHTML='';
+  if(currentCard){
+    const c=document.createElement('div');c.className='card big';
+    c.innerHTML=`<div class="card-face card-front" style="color:${SUIT_COLORS[currentCard.suit]}"><span style="font-size:42px">${currentCard.value}</span><span class="suit">${currentCard.suit}</span></div>`;
+    row.appendChild(c);
+  }
+  // Next card (face down)
+  if(gameActive){
+    const c=document.createElement('div');c.className='card big';c.id='next-card';
+    c.innerHTML=`<div class="card-face card-front" id="next-front" style="opacity:0"></div><div class="card-face card-back"></div>`;
+    row.appendChild(c);
+  }
+}
+
+async function onPlay(){
+  await initA();if(ac?.state==='suspended')await ac.resume();
+  const btn=document.getElementById('play-btn');
+  if(gameActive){
+    // Cashout
+    const winAmt=currentBet*mult-currentBet;balance+=currentBet*mult;profit+=winAmt;
+    gameActive=false;
+    sfxCashout();
+    const area=document.getElementById('game-area'),ar=area.getBoundingClientRect();
+    spawnP(ar.width/2,ar.height/2,'#ffd700',40,200);spawnP(ar.width/2,ar.height/2,'#22c55e',20);
+    if(navigator.vibrate)navigator.vibrate([10,20,10,20,30]);
+    document.getElementById('result-msg').innerHTML=`<span style="color:#22c55e">💰 Cashed out ${mult.toFixed(2)}x — +$${winAmt.toFixed(2)}</span>`;
+    btn.className='play-btn';btn.textContent='START ROUND';
+    document.getElementById('btn-hi').disabled=true;document.getElementById('btn-lo').disabled=true;
+    updateUI();return;
+  }
+  if(balance<currentBet)return;
+  balance-=currentBet;
+  currentCard=randomCard();streak=0;mult=1;gameActive=true;
+  btn.className='play-btn cashout';btn.textContent='💰 CASH OUT';
+  document.getElementById('btn-hi').disabled=false;document.getElementById('btn-lo').disabled=false;
+  document.getElementById('result-msg').textContent='';
+  document.getElementById('streak').textContent='';
+  document.getElementById('mult-disp').textContent='1.00x';
+  renderCards();updateUI();
+}
+
+async function guess(dir){
+  if(!gameActive)return;
+  document.getElementById('btn-hi').disabled=true;document.getElementById('btn-lo').disabled=true;
+  sfxFlip();
+
+  const nextCard=randomCard();
+  const curVal=VAL_NUM[currentCard.value],nextVal=VAL_NUM[nextCard.value];
+
+  // Flip animation
+  const nextEl=document.getElementById('next-card');
+  const frontEl=document.getElementById('next-front');
+  frontEl.style.color=SUIT_COLORS[nextCard.suit];
+  frontEl.innerHTML=`<span style="font-size:42px">${nextCard.value}</span><span class="suit">${nextCard.suit}</span>`;
+  frontEl.style.opacity='1';
+  nextEl.classList.add('flipping');
+
+  const area=document.getElementById('game-area'),ar=area.getBoundingClientRect();
+  const cardRect=nextEl.getBoundingClientRect();
+  const px=cardRect.left-ar.left+cardRect.width/2,py=cardRect.top-ar.top+cardRect.height/2;
+
+  setTimeout(()=>{
+    const won=(dir==='higher'&&nextVal>=curVal)||(dir==='lower'&&nextVal<=curVal);
+    if(won){
+      streak++;
+      // Multiplier increases per streak
+      mult=parseFloat((1+streak*0.5+streak*streak*0.1).toFixed(2));
+      sfxCorrect(streak);
+      spawnP(px,py,'#ffd700',15);
+      if(navigator.vibrate)navigator.vibrate([10]);
+      document.getElementById('streak').textContent='🔥'.repeat(Math.min(streak,10))+' Streak: '+streak;
+      document.getElementById('mult-disp').textContent=mult.toFixed(2)+'x';
+      document.getElementById('result-msg').innerHTML=`<span style="color:#22c55e">✓ Correct! ${nextCard.value}${nextCard.suit}</span>`;
+      currentCard=nextCard;
+      setTimeout(()=>{renderCards();document.getElementById('btn-hi').disabled=false;document.getElementById('btn-lo').disabled=false},600);
+    }else{
+      gameActive=false;profit-=currentBet;
+      sfxWrong();
+      spawnP(px,py,'#ef4444',30,180);
+      if(navigator.vibrate)navigator.vibrate([100]);
+      document.getElementById('game-area').style.animation='shakeH .4s ease-out';
+      setTimeout(()=>document.getElementById('game-area').style.animation='',400);
+      document.getElementById('result-msg').innerHTML=`<span style="color:#ef4444">✗ Wrong! ${nextCard.value}${nextCard.suit} — Lost $${currentBet.toFixed(2)}</span>`;
+      document.getElementById('streak').textContent='';
+      document.getElementById('mult-disp').textContent='0.00x';
+      const btn=document.getElementById('play-btn');btn.className='play-btn';btn.textContent='START ROUND';
+      updateUI();
+    }
+  },500);
+}
+
+const ss=document.createElement('style');ss.textContent='@keyframes shakeH{0%,100%{transform:translate(0)}20%{transform:translate(-6px,3px)}40%{transform:translate(5px,-2px)}60%{transform:translate(-3px,2px)}}';document.head.appendChild(ss);
+updateUI();renderCards();
+</script>
+</body>
+</html>

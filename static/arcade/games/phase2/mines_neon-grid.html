@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ARCADE — Neon Grid (Mines)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:linear-gradient(135deg,#05000d,#12002e);color:#e0d4ff;min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.hdr{text-align:center;padding:12px 12px 6px}
+.hdr h1{font-family:'Orbitron';font-size:18px;font-weight:800;background:linear-gradient(135deg,#e11d48,#06ffc7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr .sub{font-size:10px;color:#6b5fa0;margin-top:2px}
+.stats{display:flex;justify-content:space-around;padding:6px 16px;font-size:11px;background:rgba(225,29,72,0.04);border-top:1px solid rgba(217,70,239,0.12);border-bottom:1px solid rgba(217,70,239,0.12)}
+.stats .lbl{color:#6b5fa0}.stats .val{font-weight:700;color:#06ffc7;font-variant-numeric:tabular-nums}.stats .val.neg{color:#ef4444}
+.game-area{flex:1;display:flex;align-items:center;justify-content:center;padding:10px;position:relative}
+.grid{display:grid;gap:5px;perspective:800px}
+.tile{position:relative;border-radius:8px;cursor:pointer;transition:transform .08s;transform-style:preserve-3d;aspect-ratio:1}
+.tile:hover:not(.revealed):not(.disabled){transform:translateY(-2px) scale(1.04)}
+.tile-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .5s cubic-bezier(.4,.2,.2,1.1)}
+.tile.flipped .tile-inner{transform:rotateY(180deg)}
+.tile-front,.tile-back{position:absolute;inset:0;border-radius:8px;display:flex;align-items:center;justify-content:center;backface-visibility:hidden}
+.tile-front{background:rgba(225,29,72,0.08);border:1px solid rgba(217,70,239,0.15);font-size:18px;overflow:hidden}
+.tile-front::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(217,70,239,0.05),rgba(6,255,199,0.03));animation:breathe 2s ease-in-out infinite alternate;border-radius:8px}
+@keyframes breathe{from{opacity:.3}to{opacity:.8}}
+.tile-back{transform:rotateY(180deg);font-size:24px}
+.tile-back.safe{background:rgba(6,255,199,0.12);border:1px solid rgba(6,255,199,0.3);box-shadow:0 0 15px rgba(6,255,199,0.15)}
+.tile-back.mine{background:rgba(225,29,72,0.15);border:1px solid rgba(225,29,72,0.4);box-shadow:0 0 15px rgba(225,29,72,0.2)}
+.tile.disabled{pointer-events:none;opacity:.6}
+.info-bar{display:flex;justify-content:space-between;padding:6px 16px;font-size:11px;color:#8b7cbb}
+.info-bar .mult{font-weight:700;color:#06ffc7;font-size:13px}
+.ctrls{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(225,29,72,0.03);border-top:1px solid rgba(217,70,239,0.1)}
+.brow{display:flex;gap:4px;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(217,70,239,0.15);background:transparent;color:#e0d4ff;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover,.bb.on{background:#e11d48;border-color:#e11d48;color:#fff;box-shadow:0 0 12px rgba(225,29,72,0.3)}
+.mrow{display:flex;gap:4px;align-items:center;font-size:11px;color:#6b5fa0}
+.mb{padding:4px 10px;border-radius:5px;border:1px solid rgba(217,70,239,0.12);background:transparent;color:#e0d4ff;font-size:10px;cursor:pointer;transition:all .15s}
+.mb:hover,.mb.on{background:#d946ef;border-color:#d946ef;color:#fff}
+.play-btn{width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#e11d48,#d946ef,#06ffc7);color:#fff;font-family:'Orbitron';font-size:14px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all .15s}
+.play-btn:hover{box-shadow:0 4px 20px rgba(217,70,239,0.3)}.play-btn:disabled{opacity:.4;cursor:not-allowed}
+.play-btn.cashout{background:linear-gradient(135deg,#06ffc7,#22c55e);animation:pulseBtn .6s ease-in-out infinite alternate}
+@keyframes pulseBtn{from{box-shadow:0 0 10px rgba(6,255,199,0.2)}to{box-shadow:0 0 25px rgba(6,255,199,0.4)}}
+.float-num{position:absolute;pointer-events:none;font-weight:800;font-size:14px;animation:floatUp .8s ease-out forwards;z-index:10}
+@keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-40px) scale(1.3)}}
+.particle{position:absolute;pointer-events:none;border-radius:50%;animation:particleFly 1s ease-out forwards}
+@keyframes particleFly{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(0)}}
+canvas#fx-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>⚡ NEON::GRID</h1><div class="sub">Mines · 3D Reveal · Provably Fair</div></div>
+<div class="stats">
+  <div><span class="lbl">Balance </span><span class="val" id="s-bal">$1,000.00</span></div>
+  <div><span class="lbl">Bet </span><span class="val" id="s-bet">$1.00</span></div>
+  <div><span class="lbl">Profit </span><span class="val" id="s-pft">$0.00</span></div>
+</div>
+<div class="info-bar">
+  <span>💠 Revealed: <b id="info-rev">0</b>/<b id="info-safe">20</b></span>
+  <span class="mult" id="info-mult">1.00x</span>
+  <span>⚠️ Mines: <b id="info-mines">5</b></span>
+</div>
+<div class="game-area" id="game-area">
+  <div class="grid" id="grid"></div>
+  <canvas id="fx-canvas"></canvas>
+</div>
+<div class="ctrls">
+  <div class="mrow">Mines: <button class="mb on" onclick="setMines(3)">3</button><button class="mb" onclick="setMines(5)">5</button><button class="mb" onclick="setMines(10)">10</button><button class="mb" onclick="setMines(15)">15</button><button class="mb" onclick="setMines(20)">20</button></div>
+  <div class="brow" id="bet-row"></div>
+  <button class="play-btn" id="play-btn" onclick="onPlay()">START GAME</button>
+</div>
+
+<script>
+"use strict";
+const clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+
+// Audio
+class Audio{constructor(){this.ctx=null;this._ok=false}async init(){if(this._ok)return;try{this.ctx=new(window.AudioContext||window.webkitAudioContext)();this._ok=true}catch(e){}}async ensure(){if(!this._ok)await this.init();if(this.ctx?.state==='suspended')try{await this.ctx.resume()}catch(e){}}
+tone(o={}){if(!this._ok)return;const c=this.ctx,s=c.currentTime+(o.delay||0);const osc=c.createOscillator();osc.type=o.type||'sine';osc.frequency.value=o.freq||440;if(o.freqEnd){osc.frequency.setValueAtTime(o.freq||440,s);osc.frequency.exponentialRampToValueAtTime(Math.max(o.freqEnd,20),s+(o.decay||.1))}const env=c.createGain();env.gain.setValueAtTime(0,s);env.gain.linearRampToValueAtTime(o.volume||.2,s+.005);env.gain.linearRampToValueAtTime(0,s+(o.decay||.1));const pn=c.createStereoPanner();pn.pan.value=clamp(o.pan||0,-1,1);osc.connect(env);env.connect(pn);pn.connect(c.destination);osc.start(s);osc.stop(s+(o.decay||.1)+.05)}
+reveal(streak){const f=800+streak*120;this.tone({freq:f,decay:.1,type:'sine',volume:.15});this.tone({freq:f*1.5,decay:.08,type:'sine',volume:.08,delay:.04})}
+mine(){this.tone({freq:150,freqEnd:40,decay:.4,type:'sawtooth',volume:.2});const c=this.ctx;if(!this._ok)return;const now=c.currentTime;const sz=c.sampleRate*.3,buf=c.createBuffer(1,sz,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<sz;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const env=c.createGain();env.gain.setValueAtTime(.15,now);env.gain.exponentialRampToValueAtTime(.001,now+.3);const f=c.createBiquadFilter();f.type='lowpass';f.frequency.value=600;src.connect(f);f.connect(env);env.connect(c.destination);src.start(now);src.stop(now+.3)}
+cashout(){for(let i=0;i<4;i++)this.tone({freq:[523,659,784,1047][i],decay:.2,type:'triangle',volume:.2,delay:i*.08})}
+flip(){if(!this._ok)return;const c=this.ctx,now=c.currentTime;const sz=c.sampleRate*.06,buf=c.createBuffer(1,sz,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<sz;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const env=c.createGain();env.gain.setValueAtTime(.08,now);env.gain.exponentialRampToValueAtTime(.001,now+.06);const f=c.createBiquadFilter();f.type='highpass';f.frequency.value=4000;src.connect(f);f.connect(env);env.connect(c.destination);src.start(now);src.stop(now+.06)}
+}
+const SFX=new Audio();
+
+// FX Canvas
+const fxCanvas=document.getElementById('fx-canvas');const fxCtx=fxCanvas.getContext('2d');
+function resizeFx(){const r=document.getElementById('game-area').getBoundingClientRect();fxCanvas.width=r.width;fxCanvas.height=r.height}
+new ResizeObserver(resizeFx).observe(document.getElementById('game-area'));resizeFx();
+
+// Particles on canvas
+let fxParticles=[];
+function spawnParticles(x,y,color,count=15){for(let i=0;i<count;i++){const angle=Math.random()*Math.PI*2;const speed=50+Math.random()*150;fxParticles.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,life:1,size:3+Math.random()*4,color})}}
+function updateFx(dt){fxCtx.clearRect(0,0,fxCanvas.width,fxCanvas.height);for(let i=fxParticles.length-1;i>=0;i--){const p=fxParticles[i];p.life-=dt*2;if(p.life<=0){fxParticles.splice(i,1);continue}p.vy+=300*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;fxCtx.globalAlpha=p.life;fxCtx.fillStyle=p.color;fxCtx.beginPath();fxCtx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);fxCtx.fill()}}
+
+// State
+let balance=1000,currentBet=1,profit=0,mineCount=5;
+let gameActive=false,board=[],revealed=[],revealedCount=0,currentMult=1;
+const GRID=25,COLS=5;
+const bets=[0.10,0.25,0.50,1,2,5,10,25];
+const betRow=document.getElementById('bet-row');
+bets.forEach((b,i)=>{const btn=document.createElement('button');btn.className='bb'+(b===1?' on':'');btn.textContent='$'+b.toFixed(2);btn.onclick=()=>{currentBet=b;document.querySelectorAll('.bb').forEach(x=>x.classList.remove('on'));btn.classList.add('on');updateUI()};betRow.appendChild(btn)});
+
+function updateUI(){document.getElementById('s-bal').textContent='$'+balance.toFixed(2);document.getElementById('s-bet').textContent='$'+currentBet.toFixed(2);const p=document.getElementById('s-pft');p.textContent=(profit>=0?'+$':'-$')+Math.abs(profit).toFixed(2);p.className='val'+(profit<0?' neg':'');document.getElementById('info-mines').textContent=mineCount;document.getElementById('info-safe').textContent=GRID-mineCount;document.getElementById('info-rev').textContent=revealedCount;document.getElementById('info-mult').textContent=currentMult.toFixed(2)+'x'}
+
+function setMines(n){if(gameActive)return;mineCount=n;document.querySelectorAll('.mb').forEach(b=>b.classList.remove('on'));document.querySelector(`.mb[onclick="setMines(${n})"]`).classList.add('on');updateUI()}
+
+function buildGrid(){
+  const grid=document.getElementById('grid');grid.innerHTML='';
+  const sz=Math.min((window.innerWidth-40)/COLS,60);
+  grid.style.gridTemplateColumns=`repeat(${COLS},${sz}px)`;
+  for(let i=0;i<GRID;i++){
+    const tile=document.createElement('div');tile.className='tile';tile.style.width=sz+'px';
+    tile.innerHTML=`<div class="tile-inner"><div class="tile-front">▪️</div><div class="tile-back"></div></div>`;
+    tile.onclick=()=>revealTile(i);
+    tile.dataset.idx=i;grid.appendChild(tile);
+  }
+}
+buildGrid();
+
+function placeMines(){
+  board=new Array(GRID).fill(0);
+  const positions=[...Array(GRID).keys()];
+  // Fisher-Yates
+  for(let i=positions.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[positions[i],positions[j]]=[positions[j],positions[i]]}
+  for(let i=0;i<mineCount;i++)board[positions[i]]=1;
+  revealed=new Array(GRID).fill(false);revealedCount=0;currentMult=1;
+}
+
+async function onPlay(){
+  await SFX.ensure();
+  const btn=document.getElementById('play-btn');
+  if(gameActive){
+    // Cashout
+    const winAmt=currentBet*currentMult-currentBet;
+    balance+=currentBet*currentMult;profit+=winAmt;
+    gameActive=false;
+    SFX.cashout();
+    if(navigator.vibrate)navigator.vibrate([10,20,10,20,30]);
+    // Reveal all mines
+    revealAllMines();
+    btn.className='play-btn';btn.textContent='START GAME';btn.disabled=true;
+    setTimeout(()=>{btn.disabled=false;buildGrid()},1500);
+    updateUI();return;
+  }
+  if(balance<currentBet)return;
+  balance-=currentBet;
+  placeMines();buildGrid();gameActive=true;
+  btn.className='play-btn cashout';btn.textContent='💰 CASH OUT';
+  updateUI();
+}
+
+function revealTile(idx){
+  if(!gameActive||revealed[idx])return;
+  revealed[idx]=true;
+  const tile=document.querySelectorAll('.tile')[idx];
+  const back=tile.querySelector('.tile-back');
+  SFX.flip();
+
+  if(board[idx]===1){
+    // MINE HIT
+    back.className='tile-back mine';back.textContent='⚠️';
+    tile.classList.add('flipped');
+    gameActive=false;profit-=currentBet;
+    SFX.mine();
+    if(navigator.vibrate)navigator.vibrate([100]);
+    // Screen shake via CSS
+    document.getElementById('game-area').style.animation='shakeAnim .4s ease-out';
+    setTimeout(()=>document.getElementById('game-area').style.animation='',400);
+    // Particles
+    const rect=tile.getBoundingClientRect(),areaRect=document.getElementById('game-area').getBoundingClientRect();
+    spawnParticles(rect.left-areaRect.left+rect.width/2,rect.top-areaRect.top+rect.height/2,'#e11d48',30);
+    // Chain reveal all mines with stagger
+    setTimeout(()=>revealAllMines(),300);
+    const btn=document.getElementById('play-btn');btn.className='play-btn';btn.textContent='START GAME';btn.disabled=true;
+    setTimeout(()=>{btn.disabled=false;buildGrid()},2000);
+    updateUI();
+  }else{
+    // SAFE
+    revealedCount++;
+    const safeTotal=GRID-mineCount;
+    // Calculate multiplier
+    let prob=1;for(let s=0;s<revealedCount;s++)prob*=(safeTotal-s)/(GRID-s);
+    currentMult=Math.max(1,(0.97)/prob);
+    back.className='tile-back safe';back.textContent='💠';
+    tile.classList.add('flipped');
+    SFX.reveal(revealedCount);
+    // Float number
+    const rect=tile.getBoundingClientRect(),areaRect=document.getElementById('game-area').getBoundingClientRect();
+    const float=document.createElement('div');float.className='float-num';float.style.color='#06ffc7';
+    float.style.left=(rect.left-areaRect.left+rect.width/2-20)+'px';float.style.top=(rect.top-areaRect.top)+'px';
+    float.textContent=currentMult.toFixed(2)+'x';document.getElementById('game-area').appendChild(float);
+    setTimeout(()=>float.remove(),800);
+    // Particles
+    spawnParticles(rect.left-areaRect.left+rect.width/2,rect.top-areaRect.top+rect.height/2,'#06ffc7',10);
+    if(navigator.vibrate)navigator.vibrate([10]);
+    // Check if all safe revealed
+    if(revealedCount>=safeTotal){gameActive=false;const winAmt=currentBet*currentMult-currentBet;balance+=currentBet*currentMult;profit+=winAmt;SFX.cashout();const btn=document.getElementById('play-btn');btn.className='play-btn';btn.textContent='START GAME';btn.disabled=true;setTimeout(()=>{btn.disabled=false;buildGrid()},1500)}
+    updateUI();
+  }
+}
+
+function revealAllMines(){
+  const tiles=document.querySelectorAll('.tile');
+  let delay=0;
+  for(let i=0;i<GRID;i++){
+    if(board[i]===1&&!revealed[i]){
+      setTimeout(()=>{
+        const back=tiles[i].querySelector('.tile-back');
+        back.className='tile-back mine';back.textContent='⚠️';
+        tiles[i].classList.add('flipped');
+        const rect=tiles[i].getBoundingClientRect(),areaRect=document.getElementById('game-area').getBoundingClientRect();
+        spawnParticles(rect.left-areaRect.left+rect.width/2,rect.top-areaRect.top+rect.height/2,'#e11d48',5);
+      },delay);
+      delay+=60;
+    }
+  }
+}
+
+// Add shake keyframe
+const style=document.createElement('style');
+style.textContent='@keyframes shakeAnim{0%,100%{transform:translate(0,0)}10%{transform:translate(-8px,4px)}20%{transform:translate(6px,-3px)}30%{transform:translate(-5px,5px)}40%{transform:translate(4px,-2px)}50%{transform:translate(-3px,1px)}}';
+document.head.appendChild(style);
+
+// Animation loop for canvas particles
+let lastT=performance.now();
+function animLoop(now){requestAnimationFrame(animLoop);const dt=Math.min((now-lastT)/1000,.05);lastT=now;updateFx(dt)}
+requestAnimationFrame(animLoop);
+updateUI();
+</script>
+</body>
+</html>

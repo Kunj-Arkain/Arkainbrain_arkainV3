@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ARCADE — Golden Vault (Scratch)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:linear-gradient(135deg,#0a0500,#1a0f00);color:#f5deb3;min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.hdr{text-align:center;padding:12px 12px 4px}
+.hdr h1{font-family:'Playfair Display';font-size:22px;font-weight:900;background:linear-gradient(135deg,#a16207,#fbbf24);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stats{display:flex;justify-content:space-around;padding:6px 16px;font-size:11px;background:rgba(161,98,7,0.04);border-top:1px solid rgba(251,191,36,0.12);border-bottom:1px solid rgba(251,191,36,0.12)}
+.stats .lbl{color:#8b6914}.stats .val{font-weight:700;color:#fbbf24}.stats .val.neg{color:#ef4444}
+.game-area{flex:1;display:flex;align-items:center;justify-content:center;padding:10px;position:relative;min-height:280px}
+.scratch-card{position:relative;width:300px;height:220px;border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 0 2px rgba(251,191,36,0.2);cursor:crosshair}
+.card-prizes{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:2px;padding:8px;background:linear-gradient(135deg,#1a0f00,#2d1800)}
+.prize-cell{display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;background:rgba(161,98,7,0.08);border:1px solid rgba(251,191,36,0.1)}
+.prize-cell .emoji{font-size:28px}
+.prize-cell .val{font-size:10px;font-weight:700;color:#fbbf24;margin-top:2px}
+.prize-cell.matched{background:rgba(251,191,36,0.15);border-color:#fbbf24;box-shadow:0 0 12px rgba(251,191,36,0.2)}
+canvas.scratch-layer{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.scratch-info{text-align:center;margin-top:12px;font-size:11px;color:#8b6914}
+.scratch-info b{color:#fbbf24}
+.result-msg{text-align:center;font-size:15px;font-weight:700;min-height:24px;margin-top:8px;z-index:5}
+canvas#fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:10}
+.ctrls{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(161,98,7,0.03);border-top:1px solid rgba(251,191,36,0.1)}
+.brow{display:flex;gap:4px;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(251,191,36,0.15);background:transparent;color:#f5deb3;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover,.bb.on{background:#a16207;border-color:#a16207;color:#fff}
+.btn-row{display:flex;gap:8px}
+.play-btn{flex:1;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#a16207,#fbbf24);color:#1a0f00;font-family:'Playfair Display';font-size:15px;font-weight:700;cursor:pointer;text-transform:uppercase;transition:all .15s}
+.play-btn:hover{box-shadow:0 4px 20px rgba(161,98,7,0.3)}.play-btn:disabled{opacity:.4;cursor:not-allowed}
+.auto-btn{padding:14px 20px;border-radius:10px;border:1px solid rgba(251,191,36,0.2);background:transparent;color:#fbbf24;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.auto-btn:hover{background:rgba(251,191,36,0.1)}.auto-btn:disabled{opacity:.3;cursor:not-allowed}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>🎁 GOLDEN VAULT</h1></div>
+<div class="stats">
+  <div><span class="lbl">Balance </span><span class="val" id="s-bal">$1,000.00</span></div>
+  <div><span class="lbl">Bet </span><span class="val" id="s-bet">$1.00</span></div>
+  <div><span class="lbl">Profit </span><span class="val" id="s-pft">$0.00</span></div>
+</div>
+<div class="game-area" id="game-area">
+  <canvas id="fx"></canvas>
+  <div style="z-index:2;display:flex;flex-direction:column;align-items:center">
+    <div class="scratch-card" id="scratch-card">
+      <div class="card-prizes" id="card-prizes"></div>
+      <canvas class="scratch-layer" id="scratch-layer"></canvas>
+    </div>
+    <div class="scratch-info" id="scratch-info">Scratch to reveal! Match 3 symbols to win 🎁</div>
+    <div class="result-msg" id="result-msg"></div>
+  </div>
+</div>
+<div class="ctrls">
+  <div class="brow" id="bet-row"></div>
+  <div class="btn-row">
+    <button class="play-btn" id="play-btn" onclick="newCard()">🎁 NEW CARD</button>
+    <button class="auto-btn" id="auto-btn" onclick="autoScratch()" disabled>⚡ AUTO</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+
+// Audio
+let ac=null,aOk=false;
+async function initA(){if(aOk)return;try{ac=new(window.AudioContext||window.webkitAudioContext)();aOk=true}catch(e){}}
+function tone(o={}){if(!aOk)return;const c=ac,s=c.currentTime+(o.delay||0);const osc=c.createOscillator();osc.type=o.type||'sine';osc.frequency.value=o.freq||440;const env=c.createGain();env.gain.setValueAtTime(0,s);env.gain.linearRampToValueAtTime(o.vol||.15,s+.005);env.gain.linearRampToValueAtTime(0,s+(o.dur||.1));osc.connect(env);env.connect(c.destination);osc.start(s);osc.stop(s+(o.dur||.1)+.05)}
+function sfxScratch(){if(!aOk)return;const c=ac,now=c.currentTime;const sz=c.sampleRate*.03,buf=c.createBuffer(1,sz,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<sz;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const env=c.createGain();env.gain.setValueAtTime(.04,now);env.gain.exponentialRampToValueAtTime(.001,now+.03);const f=c.createBiquadFilter();f.type='bandpass';f.frequency.value=3000+Math.random()*2000;src.connect(f);f.connect(env);env.connect(c.destination);src.start(now);src.stop(now+.03)}
+function sfxReveal(){tone({freq:1200,dur:.08,type:'sine',vol:.12});tone({freq:1600,dur:.06,type:'sine',vol:.06,delay:.03})}
+function sfxWin(){for(let i=0;i<5;i++)tone({freq:[523,659,784,1047,1319][i],dur:.2,type:'triangle',vol:.2,delay:i*.08})}
+function sfxLose(){tone({freq:200,dur:.2,type:'sawtooth',vol:.1})}
+
+// FX Canvas
+const fxC=document.getElementById('fx'),fxX=fxC.getContext('2d');
+function resizeFx(){const r=document.getElementById('game-area').getBoundingClientRect();fxC.width=r.width;fxC.height=r.height}
+new ResizeObserver(resizeFx).observe(document.getElementById('game-area'));resizeFx();
+let particles=[];
+function spawnP(x,y,color,n=15){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=40+Math.random()*120;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,sz:2+Math.random()*4,color})}}
+let lastT=performance.now();
+function fxLoop(now){requestAnimationFrame(fxLoop);const dt=Math.min((now-lastT)/1000,.05);lastT=now;fxX.clearRect(0,0,fxC.width,fxC.height);for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt*2.5;if(p.life<=0){particles.splice(i,1);continue}p.vy+=300*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;fxX.globalAlpha=p.life;fxX.fillStyle=p.color;fxX.beginPath();fxX.arc(p.x,p.y,p.sz*p.life,0,Math.PI*2);fxX.fill()}}
+requestAnimationFrame(fxLoop);
+
+// Prize symbols
+const SYMBOLS=[
+  {emoji:'💎',mult:50,color:'#818cf8'},
+  {emoji:'👑',mult:25,color:'#fbbf24'},
+  {emoji:'🏺',mult:10,color:'#f59e0b'},
+  {emoji:'⭐',mult:5,color:'#fbbf24'},
+  {emoji:'🪙',mult:2,color:'#a16207'},
+  {emoji:'📜',mult:1,color:'#8b6914'},
+  {emoji:'🪨',mult:0,color:'#57534e'},
+];
+
+// State
+let balance=1000,currentBet=1,profit=0;
+let cardActive=false,scratching=false,scratchPct=0,resolved=false;
+let prizes=[];
+const bets=[0.10,0.25,0.50,1,2,5,10,25];
+document.getElementById('bet-row').innerHTML=bets.map(b=>`<button class="bb${b===1?' on':''}" onclick="setBet(${b},this)">$${b.toFixed(2)}</button>`).join('');
+function setBet(b,el){if(cardActive)return;currentBet=b;document.querySelectorAll('.bb').forEach(x=>x.classList.remove('on'));el.classList.add('on');updateUI()}
+function updateUI(){document.getElementById('s-bal').textContent='$'+balance.toFixed(2);document.getElementById('s-bet').textContent='$'+currentBet.toFixed(2);const p=document.getElementById('s-pft');p.textContent=(profit>=0?'+$':'-$')+Math.abs(profit).toFixed(2);p.className='val'+(profit<0?' neg':'')}
+
+// Generate prizes (9 cells, weighted)
+function generatePrizes(){
+  prizes=[];
+  // Determine if this card wins (30% chance)
+  const wins=Math.random()<0.3;
+  if(wins){
+    // Pick a winning symbol and place 3
+    const winIdx=weightedPick([0.02,0.05,0.1,0.2,0.3,0.25,0.08]);
+    const winSym=SYMBOLS[winIdx];
+    // Place 3 of the winner + 6 random others
+    const cells=new Array(9).fill(null);
+    const positions=[0,1,2,3,4,5,6,7,8];
+    shuffle(positions);
+    cells[positions[0]]=winSym;cells[positions[1]]=winSym;cells[positions[2]]=winSym;
+    for(let i=3;i<9;i++){
+      let s;do{s=SYMBOLS[Math.floor(Math.random()*SYMBOLS.length)]}while(s===winSym);
+      cells[positions[i]]=s;
+    }
+    prizes=cells;
+  }else{
+    // No 3-of-a-kind
+    const counts={};
+    for(let i=0;i<9;i++){
+      let s;
+      do{s=SYMBOLS[Math.floor(Math.random()*SYMBOLS.length)]}while((counts[s.emoji]||0)>=2);
+      counts[s.emoji]=(counts[s.emoji]||0)+1;
+      prizes.push(s);
+    }
+  }
+}
+function weightedPick(weights){const r=Math.random()*weights.reduce((a,b)=>a+b,0);let sum=0;for(let i=0;i<weights.length;i++){sum+=weights[i];if(r<=sum)return i}return weights.length-1}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}}
+
+// Render prizes under scratch
+function renderPrizes(){
+  const grid=document.getElementById('card-prizes');grid.innerHTML='';
+  for(let i=0;i<9;i++){
+    const p=prizes[i];
+    const cell=document.createElement('div');cell.className='prize-cell';cell.id='cell-'+i;
+    cell.innerHTML=`<span class="emoji">${p.emoji}</span><span class="val">${p.mult>0?p.mult+'x':'—'}</span>`;
+    grid.appendChild(cell);
+  }
+}
+
+// Scratch canvas
+const scratchCanvas=document.getElementById('scratch-layer');
+const sCtx=scratchCanvas.getContext('2d');
+function initScratchLayer(){
+  const card=document.getElementById('scratch-card');
+  const w=card.offsetWidth,h=card.offsetHeight;
+  scratchCanvas.width=w*2;scratchCanvas.height=h*2;
+  scratchCanvas.style.width=w+'px';scratchCanvas.style.height=h+'px';
+  const c=sCtx;c.setTransform(2,0,0,2,0,0);
+
+  // Metallic gradient
+  const g=c.createLinearGradient(0,0,w,h);
+  g.addColorStop(0,'#c0a060');g.addColorStop(0.3,'#e8d090');g.addColorStop(0.5,'#d4b878');g.addColorStop(0.7,'#e8d090');g.addColorStop(1,'#c0a060');
+  c.fillStyle=g;c.fillRect(0,0,w,h);
+
+  // Pattern overlay
+  c.globalAlpha=.15;c.font='12px serif';
+  for(let y=0;y<h;y+=20)for(let x=0;x<w;x+=20)c.fillText('✦',x+Math.random()*5,y+Math.random()*5);
+  c.globalAlpha=1;
+
+  // Text
+  c.font='bold 16px "Playfair Display",serif';c.textAlign='center';c.textBaseline='middle';
+  c.fillStyle='rgba(90,60,20,0.5)';c.fillText('SCRATCH TO REVEAL',w/2,h/2-10);
+  c.font='24px serif';c.fillText('🎁',w/2,h/2+18);
+
+  scratchPct=0;resolved=false;
+}
+
+// Scratch mechanics
+let isDrawing=false,lastSX=0,lastSY=0;
+scratchCanvas.addEventListener('pointerdown',e=>{
+  if(!cardActive||resolved)return;
+  e.preventDefault();isDrawing=true;
+  const r=scratchCanvas.getBoundingClientRect();
+  lastSX=e.clientX-r.left;lastSY=e.clientY-r.top;
+  scratchCanvas.setPointerCapture(e.pointerId);
+});
+scratchCanvas.addEventListener('pointermove',e=>{
+  if(!isDrawing||!cardActive||resolved)return;
+  const r=scratchCanvas.getBoundingClientRect();
+  const x=e.clientX-r.left,y=e.clientY-r.top;
+  scratchAt(x,y,lastSX,lastSY);
+  lastSX=x;lastSY=y;
+});
+scratchCanvas.addEventListener('pointerup',()=>isDrawing=false);
+scratchCanvas.addEventListener('pointerleave',()=>isDrawing=false);
+
+function scratchAt(x,y,px,py){
+  const c=sCtx;
+  c.save();
+  c.globalCompositeOperation='destination-out';
+  c.lineWidth=30;c.lineCap='round';c.lineJoin='round';
+  c.beginPath();c.moveTo(px,py);c.lineTo(x,y);c.stroke();
+  // Extra circle for better coverage
+  c.beginPath();c.arc(x,y,15,0,Math.PI*2);c.fill();
+  c.restore();
+
+  // Particle dust
+  if(Math.random()<.3){
+    const areaR=document.getElementById('game-area').getBoundingClientRect();
+    const cardR=scratchCanvas.getBoundingClientRect();
+    const fx=cardR.left-areaR.left+x,fy=cardR.top-areaR.top+y;
+    spawnP(fx,fy,'#c0a060',2);
+  }
+  sfxScratch();
+
+  // Calculate scratch percentage
+  checkScratchPct();
+}
+
+function checkScratchPct(){
+  const w=scratchCanvas.width,h=scratchCanvas.height;
+  const data=sCtx.getImageData(0,0,w,h).data;
+  let clear=0;const total=w*h;
+  // Sample every 20th pixel for performance
+  for(let i=3;i<data.length;i+=80){if(data[i]===0)clear++}
+  scratchPct=clear/(total/20);
+  document.getElementById('scratch-info').innerHTML=`Scratched: <b>${Math.round(scratchPct*100)}%</b>`;
+
+  if(scratchPct>0.5&&!resolved)resolve();
+}
+
+function resolve(){
+  resolved=true;
+  // Clear rest of scratch layer with fade
+  sCtx.clearRect(0,0,scratchCanvas.width/2,scratchCanvas.height/2);
+
+  // Check for 3-of-a-kind
+  const counts={};
+  for(const p of prizes)counts[p.emoji]=(counts[p.emoji]||0)+1;
+  let bestMatch=null;
+  for(const[emoji,cnt]of Object.entries(counts)){
+    if(cnt>=3){
+      const sym=prizes.find(p=>p.emoji===emoji);
+      if(!bestMatch||sym.mult>bestMatch.mult)bestMatch=sym;
+    }
+  }
+
+  const areaR=document.getElementById('game-area').getBoundingClientRect();
+  const cardR=document.getElementById('scratch-card').getBoundingClientRect();
+
+  if(bestMatch&&bestMatch.mult>0){
+    const winAmt=currentBet*bestMatch.mult;
+    balance+=winAmt;profit+=winAmt-currentBet;
+    document.getElementById('result-msg').innerHTML=`<span style="color:#22c55e">🎉 3× ${bestMatch.emoji} — ${bestMatch.mult}x — +$${(winAmt-currentBet).toFixed(2)}</span>`;
+    sfxWin();sfxReveal();
+    // Highlight matching cells
+    for(let i=0;i<9;i++){if(prizes[i]===bestMatch)document.getElementById('cell-'+i).classList.add('matched')}
+    spawnP(cardR.left-areaR.left+cardR.width/2,cardR.top-areaR.top+cardR.height/2,'#fbbf24',40);
+    spawnP(cardR.left-areaR.left+cardR.width/2,cardR.top-areaR.top+cardR.height/2,'#22c55e',20);
+    if(navigator.vibrate)navigator.vibrate([10,20,10,20,30]);
+  }else{
+    profit-=currentBet;
+    document.getElementById('result-msg').innerHTML=`<span style="color:#ef4444">No match — -$${currentBet.toFixed(2)}</span>`;
+    sfxLose();
+    if(navigator.vibrate)navigator.vibrate([60]);
+  }
+  updateUI();
+  cardActive=false;
+  document.getElementById('play-btn').disabled=false;
+  document.getElementById('auto-btn').disabled=true;
+}
+
+async function newCard(){
+  await initA();if(ac?.state==='suspended')await ac.resume();
+  if(balance<currentBet)return;
+  balance-=currentBet;updateUI();
+  generatePrizes();renderPrizes();
+  // Wait for layout then init scratch
+  requestAnimationFrame(()=>{initScratchLayer();cardActive=true;resolved=false;
+    document.getElementById('play-btn').disabled=true;
+    document.getElementById('auto-btn').disabled=false;
+    document.getElementById('result-msg').textContent='';
+    document.getElementById('scratch-info').innerHTML='Scratch to reveal! Match 3 to win 🎁';
+  });
+}
+
+function autoScratch(){
+  if(!cardActive||resolved)return;
+  document.getElementById('auto-btn').disabled=true;
+  const w=scratchCanvas.offsetWidth,h=scratchCanvas.offsetHeight;
+  let step=0;const steps=[];
+  // Generate sweep path
+  for(let y=15;y<h;y+=20)for(let x=15;x<w;x+=8)steps.push({x,y});
+  function tick(){
+    if(step>=steps.length||resolved)return;
+    const batch=Math.min(8,steps.length-step);
+    for(let i=0;i<batch;i++){
+      const s=steps[step+i],prev=steps[Math.max(0,step+i-1)];
+      scratchAt(s.x,s.y,prev.x,prev.y);
+    }
+    step+=batch;
+    if(!resolved)requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+updateUI();
+</script>
+</body>
+</html>

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ARCADE — Glacier Drop (Plinko)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:linear-gradient(135deg,#000810,#001830);color:#d4f0ff;min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.hdr{text-align:center;padding:12px 12px 6px}
+.hdr h1{font-family:'Quicksand';font-size:20px;font-weight:700;background:linear-gradient(135deg,#0284c7,#67e8f9);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr .sub{font-size:10px;color:#5b9bb5;margin-top:2px}
+.stats{display:flex;justify-content:space-around;padding:6px 16px;font-size:11px;background:rgba(2,132,199,0.05);border-top:1px solid rgba(56,189,248,0.1);border-bottom:1px solid rgba(56,189,248,0.1)}
+.stats .lbl{color:#5b9bb5}.stats .val{font-weight:700;color:#67e8f9;font-variant-numeric:tabular-nums}.stats .val.neg{color:#ef4444}
+#game-container{flex:1;position:relative;min-height:320px;overflow:hidden}
+.ctrls{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(2,132,199,0.04);border-top:1px solid rgba(56,189,248,0.1)}
+.brow{display:flex;gap:4px;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(56,189,248,0.15);background:transparent;color:#d4f0ff;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover,.bb.on{background:#0284c7;border-color:#0284c7;color:#fff;box-shadow:0 0 12px rgba(2,132,199,0.3)}
+.play-btn{width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#0284c7,#67e8f9);color:#fff;font-family:'Quicksand';font-size:15px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all .15s}
+.play-btn:hover{box-shadow:0 4px 20px rgba(2,132,199,0.3)}.play-btn:disabled{opacity:.4;cursor:not-allowed}
+.rrow{display:flex;gap:4px;align-items:center;font-size:11px;color:#5b9bb5}
+.rb{padding:4px 10px;border-radius:5px;border:1px solid rgba(56,189,248,0.12);background:transparent;color:#d4f0ff;font-size:10px;cursor:pointer;transition:all .15s}
+.rb:hover,.rb.on{background:#0284c7;border-color:#0284c7;color:#fff}
+.debug{position:fixed;top:4px;right:4px;font-size:9px;color:#3a6b80;font-family:monospace;pointer-events:none;text-align:right}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>❄️ GLACIER DROP</h1><div class="sub">Plinko · Real Physics · Provably Fair</div></div>
+<div class="stats">
+  <div><span class="lbl">Balance </span><span class="val" id="s-bal">$1,000.00</span></div>
+  <div><span class="lbl">Bet </span><span class="val" id="s-bet">$1.00</span></div>
+  <div><span class="lbl">Profit </span><span class="val" id="s-pft">$0.00</span></div>
+</div>
+<div id="game-container"></div>
+<div class="ctrls">
+  <div class="rrow">Risk: <button class="rb on" onclick="setRisk('low')">Low</button><button class="rb" onclick="setRisk('med')">Med</button><button class="rb" onclick="setRisk('high')">High</button> · Rows: <button class="rb ro on" onclick="setRows(8)">8</button><button class="rb ro" onclick="setRows(12)">12</button><button class="rb ro" onclick="setRows(16)">16</button></div>
+  <div class="brow" id="bet-row"></div>
+  <button class="play-btn" id="play-btn" onclick="dropBall()">DROP ❄️</button>
+</div>
+<div class="debug" id="debug"></div>
+
+<script>
+"use strict";
+// === Minimal engine inline ===
+const lerp=(a,b,t)=>a+(b-a)*t,clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v,TAU=Math.PI*2;
+const rng=(a,b)=>a+Math.random()*(b-a);
+function hexRgb(h){const n=parseInt(h.replace('#',''),16);return[(n>>16)&255,(n>>8)&255,n&255]}
+function rgba(hex,a){const[r,g,b]=hexRgb(hex);return`rgba(${r},${g},${b},${a})`}
+const Ease={outCubic:t=>(--t)*t*t+1,outElastic:t=>t===0||t===1?t:Math.pow(2,-10*t)*Math.sin((t-.1)*5*Math.PI)+1,outBounce:t=>{if(t<1/2.75)return 7.5625*t*t;if(t<2/2.75){t-=1.5/2.75;return 7.5625*t*t+.75}if(t<2.5/2.75){t-=2.25/2.75;return 7.5625*t*t+.9375}t-=2.625/2.75;return 7.5625*t*t+.984375}};
+
+class Spring{constructor(o={}){this.val=o.from||0;this.target=o.to!==undefined?o.to:this.val;this.vel=0;this.stiff=o.stiffness||180;this.damp=o.damping||12;this.settled=false}setTarget(t){this.target=t;this.settled=false}update(dt){if(this.settled)return this.val;const d=this.val-this.target;const a=-this.stiff*d-this.damp*this.vel;this.vel+=a*dt;this.val+=this.vel*dt;if(Math.abs(this.vel)<.001&&Math.abs(d)<.001){this.val=this.target;this.vel=0;this.settled=true}return this.val}impulse(f){this.vel+=f;this.settled=false}}
+
+// Audio
+class Audio{
+  constructor(){this.ctx=null;this._ok=false}
+  async init(){if(this._ok)return;try{this.ctx=new(window.AudioContext||window.webkitAudioContext)();this._ok=true}catch(e){}}
+  async ensure(){if(!this._ok)await this.init();if(this.ctx?.state==='suspended')try{await this.ctx.resume()}catch(e){}}
+  tone(o={}){if(!this._ok)return;const c=this.ctx,now=c.currentTime,s=now+(o.delay||0);const osc=c.createOscillator();osc.type=o.type||'sine';osc.frequency.value=o.freq||440;const env=c.createGain();const v=o.volume||.2;env.gain.setValueAtTime(0,s);env.gain.linearRampToValueAtTime(v,s+.005);env.gain.linearRampToValueAtTime(0,s+(o.decay||.1));osc.connect(env);env.connect(c.destination);osc.start(s);osc.stop(s+(o.decay||.1)+.05)}
+  bounce(row,maxRows){const f=200+((row/maxRows)*800);this.tone({freq:f,decay:.06,type:'triangle',volume:.08+row/maxRows*.06})}
+  land(mult){if(mult>=5)this.win();else this.tone({freq:300,decay:.15,type:'sine',volume:.2})}
+  win(){for(let i=0;i<4;i++)this.tone({freq:[523,659,784,1047][i],decay:.2,type:'triangle',volume:.2,delay:i*.08})}
+  noise(dur=.1,vol=.05){if(!this._ok)return;const c=this.ctx,now=c.currentTime;const sz=c.sampleRate*dur,buf=c.createBuffer(1,sz,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<sz;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const env=c.createGain();env.gain.setValueAtTime(vol,now);env.gain.exponentialRampToValueAtTime(.001,now+dur);const f=c.createBiquadFilter();f.type='highpass';f.frequency.value=3000;src.connect(f);f.connect(env);env.connect(c.destination);src.start(now);src.stop(now+dur)}
+}
+const SFX=new Audio();
+
+// === Renderer ===
+const container=document.getElementById('game-container');
+const canvas=document.createElement('canvas');
+canvas.style.cssText='position:absolute;inset:0;width:100%;height:100%';
+container.appendChild(canvas);
+const ctx=canvas.getContext('2d');
+let W=0,H=0,dpr=Math.min(window.devicePixelRatio||1,2);
+function resize(){const r=container.getBoundingClientRect();W=r.width;H=r.height;canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0)}
+new ResizeObserver(resize).observe(container);resize();
+
+// === Game Config ===
+let ROWS=12, RISK='low';
+let balance=1000,currentBet=1,profit=0;
+const bets=[0.10,0.25,0.50,1,2,5,10,25];
+
+// Multiplier tables
+const MULT_TABLES={
+  low:{8:[5.6,2.1,1.1,.5,.3,.5,1.1,2.1,5.6],12:[8.4,3,1.4,.8,.5,.3,.3,.5,.8,1.4,3,8.4,0],16:[16,5,2,1.4,.7,.4,.3,.2,.2,.3,.4,.7,1.4,2,5,16,0]},
+  med:{8:[13,3,1.3,.4,.2,.4,1.3,3,13],12:[24,5,2,.7,.3,.2,.2,.3,.7,2,5,24,0],16:[50,10,3,1.5,.5,.3,.2,.1,.1,.2,.3,.5,1.5,3,10,50,0]},
+  high:{8:[29,4,.9,.2,.1,.2,.9,4,29],12:[77,10,2,.4,.1,.1,.1,.1,.4,2,10,77,0],16:[170,24,4,.7,.2,.1,0,0,0,.1,.2,.7,4,24,170,0]},
+};
+
+function getMultipliers(){const t=MULT_TABLES[RISK][ROWS];return t.slice(0,ROWS+1)}
+
+// === Peg layout ===
+let pegs=[], slots=[], slotMults=[];
+function buildBoard(){
+  pegs=[];slots=[];
+  const mults=getMultipliers();slotMults=mults;
+  const pad=30,topY=40;
+  const boardW=W-pad*2,boardH=H-80;
+  const rowH=boardH/(ROWS+1);
+  for(let r=0;r<ROWS;r++){
+    const cols=r+3;
+    const y=topY+rowH*(r+1);
+    for(let c=0;c<cols;c++){
+      const xOff=(W-(cols-1)*(boardW/(ROWS+2)))/2;
+      const x=xOff+c*(boardW/(ROWS+2));
+      pegs.push({x,y,r,hitAnim:0});
+    }
+  }
+  // Slots at bottom
+  const slotCols=ROWS+1;
+  const slotW=boardW/(slotCols);
+  for(let i=0;i<slotCols;i++){
+    const x=pad+slotW*i+slotW/2;
+    const y=topY+boardH;
+    slots.push({x,y,w:slotW-4,mult:mults[i]||0,hitAnim:0,spring:new Spring({from:0,to:0,stiffness:300,damping:15})});
+  }
+}
+buildBoard();
+
+// === Ball physics ===
+const balls=[];
+const BALL_R=6,PEG_R=4,BOUNCE=0.6,GRAVITY=800;
+
+class Ball{
+  constructor(x){
+    this.x=x;this.y=15;this.vx=rng(-5,5);this.vy=0;
+    this.r=BALL_R;this.active=true;this.trail=[];this.landed=false;
+    this.squashX=1;this.squashY=1;this.squashTimer=0;
+    this.alpha=1;this.glow=0;
+    this.particles=[];
+  }
+  update(dt){
+    if(!this.active)return;
+    // Gravity
+    this.vy+=GRAVITY*dt;
+    this.x+=this.vx*dt;
+    this.y+=this.vy*dt;
+    // Squash recovery
+    if(this.squashTimer>0){this.squashTimer-=dt;const t=clamp(1-this.squashTimer/.08,0,1);this.squashX=lerp(1.4,1,Ease.outElastic(t));this.squashY=lerp(.6,1,Ease.outElastic(t))}else{this.squashX=1;this.squashY=1}
+    // Trail
+    this.trail.push({x:this.x,y:this.y,a:1});
+    if(this.trail.length>20)this.trail.shift();
+    for(const t of this.trail)t.a-=dt*3;
+    // Peg collisions
+    for(const peg of pegs){
+      const dx=this.x-peg.x,dy=this.y-peg.y;
+      const d=Math.hypot(dx,dy);
+      const minD=this.r+PEG_R;
+      if(d<minD&&d>0){
+        // Separate
+        const nx=dx/d,ny=dy/d;
+        this.x=peg.x+nx*minD;this.y=peg.y+ny*minD;
+        // Reflect velocity
+        const dot=this.vx*nx+this.vy*ny;
+        this.vx-=2*dot*nx*BOUNCE;
+        this.vy-=2*dot*ny*BOUNCE;
+        // Add random horizontal nudge
+        this.vx+=rng(-30,30);
+        // Squash effect
+        this.squashTimer=.08;
+        // Peg hit animation
+        peg.hitAnim=1;
+        // Sound
+        SFX.bounce(peg.r,ROWS);
+        // Glow
+        this.glow=1;
+      }
+    }
+    // Wall bounds
+    if(this.x<BALL_R){this.x=BALL_R;this.vx=Math.abs(this.vx)*BOUNCE}
+    if(this.x>W-BALL_R){this.x=W-BALL_R;this.vx=-Math.abs(this.vx)*BOUNCE}
+    // Glow decay
+    this.glow=Math.max(0,this.glow-dt*5);
+    // Slot landing
+    if(this.y>slots[0].y-10&&!this.landed){
+      this.landed=true;this.active=false;
+      // Find closest slot
+      let best=0,bestD=Infinity;
+      for(let i=0;i<slots.length;i++){const d=Math.abs(this.x-slots[i].x);if(d<bestD){bestD=d;best=i}}
+      const slot=slots[best];
+      this.x=slot.x;this.y=slot.y;
+      slot.hitAnim=1;slot.spring.impulse(-8);
+      // Resolve
+      const mult=slot.mult;
+      const winAmt=currentBet*mult-currentBet;
+      balance+=currentBet*mult;profit+=winAmt;updateUI();
+      addHistory(mult,winAmt);
+      SFX.land(mult);
+      if(navigator.vibrate)navigator.vibrate(mult>=5?[10,20,10,20,30]:[15]);
+      // Camera effects
+      if(mult>=5){camShake=8;camFlash='#67e8f9';camFlashA=.4}
+      else if(mult>=2){camShake=3;camFlash='#22c55e';camFlashA=.2}
+      setTimeout(()=>{this.alpha=0;setTimeout(()=>{const i=balls.indexOf(this);if(i!==-1)balls.splice(i,1)},300)},1200);
+    }
+  }
+}
+
+// === Camera ===
+let camShakeX=0,camShakeY=0,camShake=0,camFlash='#fff',camFlashA=0;
+
+// === UI ===
+const betRow=document.getElementById('bet-row');
+bets.forEach((b,i)=>{const btn=document.createElement('button');btn.className='bb'+(b===1?' on':'');btn.textContent='$'+b.toFixed(2);btn.onclick=()=>{currentBet=b;document.querySelectorAll('.bb').forEach(x=>x.classList.remove('on'));btn.classList.add('on');updateUI()};betRow.appendChild(btn)});
+function updateUI(){document.getElementById('s-bal').textContent='$'+balance.toFixed(2);document.getElementById('s-bet').textContent='$'+currentBet.toFixed(2);const p=document.getElementById('s-pft');p.textContent=(profit>=0?'+$':'-$')+Math.abs(profit).toFixed(2);p.className='val'+(profit<0?' neg':'')}
+function addHistory(m,amt){/* compact */}
+
+function setRisk(r){RISK=r;document.querySelectorAll('.rb:not(.ro)').forEach(b=>b.classList.remove('on'));document.querySelector(`.rb[onclick="setRisk('${r}')"]`).classList.add('on');buildBoard()}
+function setRows(n){ROWS=n;document.querySelectorAll('.rb.ro').forEach(b=>b.classList.remove('on'));document.querySelector(`.rb[onclick="setRows(${n})"]`).classList.add('on');buildBoard()}
+
+async function dropBall(){
+  await SFX.ensure();
+  if(balance<currentBet)return;
+  balance-=currentBet;updateUI();
+  SFX.noise(.05,.03);
+  // Drop from random position near center
+  const spread=20;
+  balls.push(new Ball(W/2+rng(-spread,spread)));
+}
+
+// === Render Loop ===
+let lastTime=performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt=Math.min((now-lastTime)/1000,.05);lastTime=now;
+
+  // Update balls
+  for(const b of balls)b.update(dt);
+  // Peg anim decay
+  for(const p of pegs)if(p.hitAnim>0)p.hitAnim=Math.max(0,p.hitAnim-dt*6);
+  // Slot spring
+  for(const s of slots){s.spring.update(dt);if(s.hitAnim>0)s.hitAnim=Math.max(0,s.hitAnim-dt*3)}
+  // Camera
+  if(camShake>0){camShake-=dt*20;camShakeX=Math.sin(now*.03)*camShake*(Math.random()*.5+.5);camShakeY=Math.cos(now*.033)*camShake*(Math.random()*.5+.5)}else{camShakeX=0;camShakeY=0}
+  if(camFlashA>0)camFlashA-=dt*3;
+
+  // === RENDER ===
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  ctx.translate(camShakeX,camShakeY);
+
+  // Background ambient
+  const bgGrad=ctx.createRadialGradient(W/2,H*.3,0,W/2,H*.3,W*.6);
+  bgGrad.addColorStop(0,rgba('#0284c7',.04));bgGrad.addColorStop(1,'transparent');
+  ctx.fillStyle=bgGrad;ctx.fillRect(0,0,W,H);
+
+  // === Pegs ===
+  for(const p of pegs){
+    const glow=p.hitAnim;
+    if(glow>.01){
+      const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,PEG_R+12*glow);
+      g.addColorStop(0,rgba('#67e8f9',glow*.5));g.addColorStop(1,'transparent');
+      ctx.fillStyle=g;ctx.fillRect(p.x-20,p.y-20,40,40);
+    }
+    const scale=1+glow*.3;
+    ctx.beginPath();ctx.arc(p.x,p.y,PEG_R*scale,0,TAU);
+    ctx.fillStyle=glow>.01?rgba('#67e8f9',.6+glow*.4):rgba('#38bdf8',.25);
+    ctx.fill();
+    // Highlight dot
+    ctx.beginPath();ctx.arc(p.x-1,p.y-1,PEG_R*.35,0,TAU);ctx.fillStyle=rgba('#fff',.15+glow*.3);ctx.fill();
+  }
+
+  // === Slots ===
+  for(let i=0;i<slots.length;i++){
+    const s=slots[i];
+    const bounce=s.spring.val;
+    const glow=s.hitAnim;
+    const m=s.mult;
+    const h=28+bounce;
+    const x=s.x-s.w/2,y=s.y-h/2;
+
+    // Color based on multiplier
+    let col='#1e3a5f';
+    if(m>=10)col='#dc2626';else if(m>=5)col='#f59e0b';else if(m>=2)col='#0284c7';else if(m>=1)col='#0e7490';else col='#164e63';
+
+    // Glow
+    if(glow>.01){
+      const gg=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,s.w*.8);
+      gg.addColorStop(0,rgba(col,glow*.6));gg.addColorStop(1,'transparent');
+      ctx.fillStyle=gg;ctx.fillRect(s.x-s.w,s.y-s.w,s.w*2,s.w*2);
+    }
+
+    ctx.beginPath();ctx.roundRect(x,y,s.w,h,4);
+    ctx.fillStyle=rgba(col,.3+glow*.4);ctx.fill();
+    ctx.strokeStyle=rgba(col,.5+glow*.5);ctx.lineWidth=1;ctx.stroke();
+
+    // Mult label
+    ctx.font='bold 9px Inter,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=rgba('#d4f0ff',.7+glow*.3);
+    ctx.fillText(m>0?m+'x':'0x',s.x,s.y);
+  }
+
+  // === Balls ===
+  for(const b of balls){
+    // Trail
+    for(let i=0;i<b.trail.length;i++){
+      const t=b.trail[i];
+      if(t.a<=0)continue;
+      ctx.beginPath();ctx.arc(t.x,t.y,BALL_R*(t.a*.5),0,TAU);
+      ctx.fillStyle=rgba('#67e8f9',t.a*.3);ctx.fill();
+    }
+    // Glow
+    if(b.glow>.01){
+      const g=ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,BALL_R+15*b.glow);
+      g.addColorStop(0,rgba('#67e8f9',b.glow*.6));g.addColorStop(1,'transparent');
+      ctx.fillStyle=g;ctx.fillRect(b.x-25,b.y-25,50,50);
+    }
+    // Ball body
+    ctx.save();ctx.globalAlpha=Math.max(0,b.alpha);ctx.translate(b.x,b.y);
+    ctx.scale(b.squashX,b.squashY);
+    // Gradient sphere
+    const bg=ctx.createRadialGradient(-2,-2,1,0,0,BALL_R);
+    bg.addColorStop(0,'#e0f7ff');bg.addColorStop(.5,'#67e8f9');bg.addColorStop(1,'#0284c7');
+    ctx.beginPath();ctx.arc(0,0,BALL_R,0,TAU);ctx.fillStyle=bg;ctx.fill();
+    // Specular highlight
+    ctx.beginPath();ctx.arc(-2,-2,BALL_R*.35,0,TAU);ctx.fillStyle=rgba('#fff',.6);ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Camera flash
+  if(camFlashA>0){ctx.save();ctx.globalAlpha=Math.max(0,camFlashA);ctx.fillStyle=camFlash;ctx.fillRect(0,0,W,H);ctx.restore()}
+
+  // Debug
+  document.getElementById('debug').textContent=`${balls.length} balls | ${pegs.length} pegs`;
+}
+requestAnimationFrame(frame);
+updateUI();
+</script>
+</body>
+</html>

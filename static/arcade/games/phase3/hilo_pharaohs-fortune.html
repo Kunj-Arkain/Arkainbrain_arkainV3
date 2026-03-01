@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ARCADE — Pharaoh's Fortune v3</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--gold:#ffd700;--goldd:#b8860b;--bg0:#1a0f00;--bg1:#2d1800;--txt:#f5deb3;--dim:#8b6914;--win:#22c55e;--lose:#ef4444}
+body{font-family:'Inter',sans-serif;background:linear-gradient(135deg,var(--bg0),var(--bg1));color:var(--txt);min-height:100vh;display:flex;flex-direction:column;overflow:hidden;-webkit-user-select:none;user-select:none}
+.hdr{text-align:center;padding:12px 12px 4px;z-index:5;position:relative}
+.hdr h1{font-family:'Cinzel';font-size:20px;font-weight:900;background:linear-gradient(135deg,var(--goldd),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr .sub{font-size:10px;color:var(--dim);margin-top:2px;letter-spacing:1px}
+.stats{display:flex;justify-content:space-around;padding:6px 16px;font-size:11px;background:rgba(184,134,11,0.04);border-top:1px solid rgba(184,134,11,0.12);border-bottom:1px solid rgba(184,134,11,0.12);z-index:5;position:relative}
+.stats .lbl{color:var(--dim)}.stats .val{font-weight:700;color:var(--gold);font-variant-numeric:tabular-nums}.stats .val.neg{color:var(--lose)}
+.odo{display:inline-flex;overflow:hidden;height:1.2em;vertical-align:bottom}
+.odo-col{display:flex;flex-direction:column;transition:transform .5s cubic-bezier(.4,.2,.2,1.1);line-height:1.2em;width:.58em;text-align:center}
+.odo-col.sep{width:.3em;transition:none}
+.game-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;padding:10px;overflow:hidden;perspective:800px}
+canvas#bg{position:absolute;inset:0;width:100%;height:100%;z-index:0}
+canvas#fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:10}
+.game-ui{position:relative;z-index:3;display:flex;flex-direction:column;align-items:center;width:100%}
+.streak{font-family:'Cinzel';font-size:16px;color:var(--gold);text-align:center;margin:6px 0;min-height:22px;text-shadow:0 0 10px rgba(255,215,0,0.4);transition:all .3s}
+.mult-display{font-family:'Cinzel';font-size:28px;color:var(--gold);text-shadow:0 0 15px rgba(255,215,0,0.5);min-height:36px;text-align:center;margin:4px 0;transition:all .3s}
+.cards-row{display:flex;gap:16px;align-items:center;perspective:600px;min-height:165px}
+.card{width:100px;height:145px;position:relative;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.4,.15,.2,1.15);cursor:default}
+.card.flipping .card-inner{transform:rotateY(180deg)}
+.card-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.4,.15,.2,1.15)}
+.card-face{position:absolute;inset:0;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;backface-visibility:hidden}
+.card-front{background:linear-gradient(145deg,#3d2000,#5c3000);border:2px solid rgba(184,134,11,0.3);box-shadow:0 4px 15px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,215,0,0.08)}
+.card-front .val{font-size:40px;font-weight:900;font-family:'Cinzel'}
+.card-front .suit{font-size:16px;margin-top:2px}
+.card-front .corner{position:absolute;font-size:11px;font-family:'Cinzel';font-weight:700;line-height:1}
+.card-front .corner.tl{top:6px;left:8px}.card-front .corner.br{bottom:6px;right:8px;transform:rotate(180deg)}
+.card-back{transform:rotateY(180deg);background:linear-gradient(145deg,var(--goldd),var(--dim));background-image:repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(0,0,0,0.04) 8px,rgba(0,0,0,0.04) 16px);border:2px solid rgba(255,215,0,0.2);box-shadow:0 4px 15px rgba(0,0,0,.4)}
+.card-back::after{content:'𓂀';font-size:36px;color:rgba(255,215,0,0.25);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
+.card-enter{animation:cardEnter .4s cubic-bezier(.2,.8,.3,1.1) forwards}
+@keyframes cardEnter{0%{opacity:0;transform:translateY(20px) scale(.85) rotateZ(-3deg)}100%{opacity:1;transform:none}}
+.card-exit{animation:cardExit .3s ease-in forwards}
+@keyframes cardExit{0%{opacity:1;transform:none}100%{opacity:0;transform:translateX(-30px) scale(.85)}}
+.result-msg{text-align:center;font-size:12px;min-height:20px;color:var(--dim);z-index:3;transition:all .3s}
+.choice-row{display:flex;gap:14px;margin:10px 0;z-index:3}
+.choice-btn{padding:14px 30px;border-radius:10px;border:2px solid rgba(184,134,11,0.2);background:rgba(184,134,11,0.06);color:var(--gold);font-family:'Cinzel';font-size:14px;font-weight:700;cursor:pointer;transition:all .15s;position:relative;overflow:hidden}
+.choice-btn:hover:not(:disabled){background:rgba(184,134,11,0.15);border-color:var(--gold);box-shadow:0 0 15px rgba(255,215,0,0.15)}
+.choice-btn:active:not(:disabled){transform:scale(.95);transition-duration:.05s}
+.choice-btn:disabled{opacity:.25;cursor:not-allowed}
+.ctrls{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(184,134,11,0.03);border-top:1px solid rgba(184,134,11,0.1);z-index:5;position:relative}
+.brow{display:flex;gap:4px;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(184,134,11,0.15);background:transparent;color:var(--txt);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover{border-color:rgba(184,134,11,0.4)}.bb.on{background:var(--goldd);border-color:var(--goldd);color:#fff;box-shadow:0 0 12px rgba(184,134,11,0.3)}
+.bb:active{transform:translateY(2px)}
+.play-btn{width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--goldd),var(--gold));color:#1a0f00;font-family:'Cinzel';font-size:15px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all .15s;position:relative;overflow:hidden}
+.play-btn:hover{box-shadow:0 4px 20px rgba(184,134,11,0.3)}.play-btn:disabled{opacity:.4;cursor:not-allowed}
+.play-btn.cashout{background:linear-gradient(135deg,var(--win),#16a34a);color:#fff}
+.play-btn.cashout::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent);animation:sheen 1.5s infinite}
+@keyframes sheen{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.float-num{position:absolute;pointer-events:none;font-weight:800;font-family:'Cinzel';z-index:20;text-shadow:0 0 12px currentColor;animation:floatUp 1.2s cubic-bezier(.2,.8,.3,1) forwards}
+@keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(.7)}15%{transform:translateY(-10px) scale(1.2)}100%{opacity:0;transform:translateY(-55px) scale(.85)}}
+.debug{position:fixed;top:4px;right:4px;font-size:9px;color:#4a3010;font-family:monospace;pointer-events:none;z-index:50}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>𓂀 PHARAOH'S FORTUNE</h1><div class="sub">Hi-Lo · Egyptian · Phase 3</div></div>
+<div class="stats">
+  <div><span class="lbl">Balance </span><span class="val" id="s-bal">$1,000.00</span></div>
+  <div><span class="lbl">Bet </span><span class="val" id="s-bet">$1.00</span></div>
+  <div><span class="lbl">Profit </span><span class="val" id="s-pft">$0.00</span></div>
+</div>
+<div class="game-area" id="game-area">
+  <canvas id="bg"></canvas>
+  <div class="game-ui">
+    <div class="streak" id="streak"></div>
+    <div class="mult-display" id="mult-disp">1.00x</div>
+    <div class="cards-row" id="cards-row"></div>
+    <div class="result-msg" id="result-msg"></div>
+    <div class="choice-row" id="choice-row">
+      <button class="choice-btn" id="btn-hi" onclick="guess('higher')" disabled>📈 Higher</button>
+      <button class="choice-btn" id="btn-lo" onclick="guess('lower')" disabled>📉 Lower</button>
+    </div>
+  </div>
+  <canvas id="fx"></canvas>
+</div>
+<div class="ctrls">
+  <div class="brow" id="bet-row"></div>
+  <button class="play-btn" id="play-btn" onclick="onPlay()">START ROUND</button>
+</div>
+<div class="debug" id="debug"></div>
+
+<script>
+"use strict";
+
+// ═══ MATH ═══
+const TAU=Math.PI*2, clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v, lerp=(a,b,t)=>a+(b-a)*t;
+const rng=(a,b)=>a+Math.random()*(b-a);
+function rgba(hex,a){const n=parseInt(hex.replace('#',''),16);return`rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`}
+function hsl(h,s,l,a=1){return`hsla(${h},${s}%,${l}%,${a})`}
+
+// ═══ ODOMETER ═══
+class Odometer{
+  constructor(el,prefix='$',dec=2){this.el=el;this.prefix=prefix;this.dec=dec;this._cols=[];this._built=false}
+  set(v,anim=true){const str=this.prefix+Math.abs(v).toFixed(this.dec);const sign=v<0?'-':'';const full=sign+str;
+    if(!this._built||this._cols.length!==full.length)this._build(full);
+    for(let i=0;i<full.length;i++){const ch=full[i];const col=this._cols[i];if(!col)continue;
+      if('0123456789'.includes(ch)){col.style.transition=anim?'transform .5s cubic-bezier(.4,.2,.2,1.1)':'none';col.style.transform=`translateY(-${parseInt(ch)*1.2}em)`}}}
+  _build(str){this.el.innerHTML='';this._cols=[];const wrap=document.createElement('span');wrap.className='odo';
+    for(const ch of str){if('0123456789'.includes(ch)){const col=document.createElement('span');col.className='odo-col';col.innerHTML='0123456789'.split('').map(d=>`<span>${d}</span>`).join('');wrap.appendChild(col);this._cols.push(col)}
+    else{const sep=document.createElement('span');sep.className='odo-col sep';sep.textContent=ch;wrap.appendChild(sep);this._cols.push(null)}}
+    this.el.innerHTML='';this.el.appendChild(wrap);this._built=true}
+}
+const odoBal=new Odometer(document.getElementById('s-bal'));
+const odoBet=new Odometer(document.getElementById('s-bet'));
+const odoPft=new Odometer(document.getElementById('s-pft'),'+$');
+
+// ═══ ADAPTIVE MUSIC ═══
+const Music={
+  ctx:null,_ok:false,master:null,_sfx:null,
+  droneGain:null,tensionGain:null,tensionFilter:null,
+
+  async init(){
+    if(this._ok)return;
+    try{
+      this.ctx=new(window.AudioContext||window.webkitAudioContext)();
+      this.master=this.ctx.createGain();this.master.gain.value=0;this.master.connect(this.ctx.destination);
+      this._sfx=this.ctx.createGain();this._sfx.gain.value=.55;
+      const comp=this.ctx.createDynamicsCompressor();comp.threshold.value=-18;comp.ratio.value=4;
+      this._sfx.connect(comp);comp.connect(this.ctx.destination);
+      // Mystical drone — D2 (73.4 Hz)
+      const d1=this.ctx.createOscillator();d1.type='sine';d1.frequency.value=73.4;
+      this.droneGain=this.ctx.createGain();this.droneGain.gain.value=.04;
+      d1.connect(this.droneGain);this.droneGain.connect(this.master);d1.start();
+      // A2 — exotic fifth
+      const d2=this.ctx.createOscillator();d2.type='triangle';d2.frequency.value=110;
+      const d2g=this.ctx.createGain();d2g.gain.value=.02;d2.connect(d2g);d2g.connect(this.master);d2.start();
+      // Desert wind noise
+      const nSz=this.ctx.sampleRate*2,nBuf=this.ctx.createBuffer(1,nSz,this.ctx.sampleRate),nD=nBuf.getChannelData(0);
+      for(let i=0;i<nSz;i++)nD[i]=Math.random()*2-1;
+      const ns=this.ctx.createBufferSource();ns.buffer=nBuf;ns.loop=true;
+      this.tensionFilter=this.ctx.createBiquadFilter();this.tensionFilter.type='bandpass';this.tensionFilter.frequency.value=600;this.tensionFilter.Q.value=3;
+      this.tensionGain=this.ctx.createGain();this.tensionGain.gain.value=.004;
+      ns.connect(this.tensionFilter);this.tensionFilter.connect(this.tensionGain);this.tensionGain.connect(this.master);ns.start();
+      this._ok=true;
+    }catch(e){}
+  },
+  async ensure(){if(!this._ok)await this.init();if(this.ctx?.state==='suspended')try{await this.ctx.resume()}catch(e){}},
+  fadeIn(){if(!this._ok)return;this.master.gain.cancelScheduledValues(this.ctx.currentTime);this.master.gain.linearRampToValueAtTime(.7,this.ctx.currentTime+.5)},
+
+  setStreak(s){
+    if(!this._ok)return;const now=this.ctx.currentTime;
+    const t=clamp(s/8,0,1);
+    this.tensionGain.gain.linearRampToValueAtTime(.004+t*.025,now+.15);
+    this.tensionFilter.frequency.linearRampToValueAtTime(600+t*4000,now+.15);
+    this.droneGain.gain.linearRampToValueAtTime(.04+t*.03,now+.15);
+  },
+
+  tone(o={}){if(!this._ok)return;const c=this.ctx,s=c.currentTime+(o.delay||0);const osc=c.createOscillator();osc.type=o.type||'sine';osc.frequency.value=o.freq||440;if(o.freqEnd){osc.frequency.setValueAtTime(o.freq||440,s);osc.frequency.exponentialRampToValueAtTime(Math.max(o.freqEnd,20),s+(o.dur||.1))}const env=c.createGain();env.gain.setValueAtTime(0,s);env.gain.linearRampToValueAtTime(o.vol||.12,s+.005);env.gain.linearRampToValueAtTime(0,s+(o.dur||.1));osc.connect(env);env.connect(this._sfx);osc.start(s);osc.stop(s+(o.dur||.1)+.05)},
+  noise(dur=.15,vol=.08){if(!this._ok)return;const c=this.ctx,now=c.currentTime;const sz=c.sampleRate*dur,buf=c.createBuffer(1,sz,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<sz;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const f=c.createBiquadFilter();f.type='highpass';f.frequency.value=3000;const g=c.createGain();g.gain.setValueAtTime(vol,now);g.gain.exponentialRampToValueAtTime(.001,now+dur);src.connect(f);f.connect(g);g.connect(this._sfx);src.start(now);src.stop(now+dur)},
+
+  flip(){this.noise(.06,.06)},
+  correct(streak){
+    // Ascending scale — Egyptian: D E♭ F# G A B♭ D
+    const scale=[293.7,311.1,370,392,440,466.2,587.3,622.3,740,784];
+    const idx=clamp(streak-1,0,scale.length-1);
+    this.tone({freq:scale[idx],dur:.14,type:'triangle',vol:.14});
+    this.tone({freq:scale[idx]*1.5,dur:.1,type:'sine',vol:.05,delay:.05});
+    if(streak>=3)this.tone({freq:scale[idx]*2,dur:.06,type:'sine',vol:.03,delay:.08});
+  },
+  wrong(){this.tone({freq:180,freqEnd:50,dur:.45,type:'sawtooth',vol:.12});this.noise(.25,.08)},
+  cashout(){[523.25,659.25,784,1046.5,1318.5].forEach((f,i)=>this.tone({freq:f,dur:.25,type:'triangle',vol:.16,delay:i*.08}))},
+};
+
+// ═══ CANVASES ═══
+const gameArea=document.getElementById('game-area');
+const bgC=document.getElementById('bg'),bgX=bgC.getContext('2d');
+const fxC=document.getElementById('fx'),fxX=fxC.getContext('2d');
+let AW=0,AH=0;
+function resizeCanvases(){const r=gameArea.getBoundingClientRect();AW=r.width;AH=r.height;bgC.width=AW;bgC.height=AH;fxC.width=AW;fxC.height=AH}
+new ResizeObserver(resizeCanvases).observe(gameArea);resizeCanvases();
+
+// Tilt
+let tiltX=0,tiltY=0,tiltTgtX=0,tiltTgtY=0;
+gameArea.addEventListener('mousemove',e=>{const r=gameArea.getBoundingClientRect();tiltTgtX=(e.clientX-r.left-r.width/2)/r.width;tiltTgtY=(e.clientY-r.top-r.height/2)/r.height});
+gameArea.addEventListener('mouseleave',()=>{tiltTgtX=0;tiltTgtY=0});
+if(window.DeviceOrientationEvent)window.addEventListener('deviceorientation',e=>{if(e.gamma!==null)tiltTgtX=clamp(e.gamma/30,-1,1);if(e.beta!==null)tiltTgtY=clamp((e.beta-45)/30,-1,1)});
+
+// ═══ PARALLAX BG ═══
+// L0: Golden dust motes
+const dustMotes=[];for(let i=0;i<50;i++)dustMotes.push({x:Math.random(),y:Math.random(),s:rng(.6,2.5),speed:rng(.005,.025),alpha:rng(.08,.3),phase:Math.random()*TAU,drift:rng(-.005,.005)});
+// L1: Hieroglyph particles
+const hieroglyphs='𓂀𓃀𓆣𓇋𓈖𓉐𓊝𓋴𓌙𓍯𓎡𓏏'.split('');
+const hieroP=[];for(let i=0;i<12;i++)hieroP.push({x:Math.random(),y:Math.random(),ch:hieroglyphs[Math.floor(Math.random()*hieroglyphs.length)],alpha:rng(.02,.06),speed:rng(.003,.012),rot:Math.random()*TAU,rotS:rng(-.2,.2),phase:Math.random()*TAU});
+// L2: Light rays
+const rays=[];for(let i=0;i<3;i++)rays.push({x:rng(.2,.8),w:rng(.05,.12),alpha:rng(.015,.03),speed:rng(.002,.006)});
+
+function renderBg(dt,now){
+  bgX.clearRect(0,0,AW,AH);
+  tiltX=lerp(tiltX,tiltTgtX,1-Math.exp(-6*dt));
+  tiltY=lerp(tiltY,tiltTgtY,1-Math.exp(-6*dt));
+
+  // Dust motes
+  for(const d of dustMotes){
+    d.y-=d.speed*dt;d.x+=d.drift+Math.sin(now*.001+d.phase)*.001;
+    if(d.y<-0.03){d.y=1.03;d.x=Math.random()}
+    const blink=.5+Math.sin(now*.003+d.phase)*.5;
+    bgX.globalAlpha=d.alpha*blink;
+    bgX.fillStyle=hsl(40,80,60);
+    bgX.beginPath();bgX.arc(d.x*AW+tiltX*-1,d.y*AH+tiltY*-1,d.s,0,TAU);bgX.fill();
+  }
+  // Hieroglyphs
+  bgX.font='14px serif';bgX.textAlign='center';bgX.textBaseline='middle';
+  for(const h of hieroP){
+    h.y+=h.speed*dt;h.rot+=h.rotS*dt;
+    if(h.y>1.05){h.y=-0.05;h.x=Math.random();h.ch=hieroglyphs[Math.floor(Math.random()*hieroglyphs.length)]}
+    bgX.save();bgX.globalAlpha=h.alpha*(0.5+Math.sin(now*.002+h.phase)*.5);
+    bgX.translate(h.x*AW+tiltX*3,h.y*AH+tiltY*2);bgX.rotate(h.rot);
+    bgX.fillStyle='#b8860b';bgX.fillText(h.ch,0,0);bgX.restore();
+  }
+  // Light rays
+  for(const r of rays){
+    r.x+=r.speed*dt;if(r.x>1.2)r.x=-0.2;
+    bgX.save();bgX.globalAlpha=r.alpha;
+    const x=r.x*AW+tiltX*-5;
+    const g=bgX.createLinearGradient(x-r.w*AW/2,0,x+r.w*AW/2,0);
+    g.addColorStop(0,'transparent');g.addColorStop(.5,hsl(45,70,60,.3));g.addColorStop(1,'transparent');
+    bgX.fillStyle=g;bgX.fillRect(x-r.w*AW/2,0,r.w*AW,AH);bgX.restore();
+  }
+  bgX.globalAlpha=1;
+
+  // Ambient golden glow at center
+  bgX.save();bgX.globalAlpha=.04;
+  const ag=bgX.createRadialGradient(AW/2,AH*.4,0,AW/2,AH*.4,AW*.4);
+  ag.addColorStop(0,'#ffd700');ag.addColorStop(1,'transparent');
+  bgX.fillStyle=ag;bgX.fillRect(0,0,AW,AH);bgX.restore();
+
+  // Vignette
+  const vg=bgX.createRadialGradient(AW/2,AH/2,AW*.2,AW/2,AH/2,AW*.6);
+  vg.addColorStop(0,'transparent');vg.addColorStop(1,'rgba(0,0,0,.18)');
+  bgX.fillStyle=vg;bgX.fillRect(0,0,AW,AH);
+}
+
+// ═══ FX PARTICLES ═══
+let fxParts=[];
+function spawnFX(x,y,color,n=15,speed=150){
+  for(let i=0;i<n;i++){const a=Math.random()*TAU,s=30+Math.random()*speed;
+    fxParts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,sz:2+Math.random()*5,color,type:Math.random()<.2?'diamond':'circle'})}
+}
+let flashAlpha=0,flashColor='#fff',glowAlpha=0,glowColor='#fff',shakeI=0,shakeT=0;
+function updateFX(dt,now){
+  fxX.clearRect(0,0,AW,AH);
+  // Shake
+  if(shakeT>0){shakeT-=dt;shakeI*=Math.pow(.01,dt);
+    gameArea.style.transform=`translate(${Math.sin(now*.03)*shakeI*(Math.random()*.5+.5)}px,${Math.cos(now*.033)*shakeI*(Math.random()*.5+.5)}px)`;
+  }else{gameArea.style.transform='none';shakeI=0}
+  // Particles
+  for(let i=fxParts.length-1;i>=0;i--){
+    const p=fxParts[i];p.life-=dt*2.5;
+    if(p.life<=0){fxParts.splice(i,1);continue}
+    p.vy+=280*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;
+    fxX.globalAlpha=p.life;fxX.fillStyle=p.color;
+    if(p.type==='diamond'){
+      fxX.save();fxX.translate(p.x,p.y);fxX.rotate(p.life*3);
+      const s=p.sz*p.life;fxX.beginPath();fxX.moveTo(0,-s);fxX.lineTo(s*.6,0);fxX.lineTo(0,s);fxX.lineTo(-s*.6,0);fxX.closePath();fxX.fill();fxX.restore();
+    }else{fxX.beginPath();fxX.arc(p.x,p.y,p.sz*p.life,0,TAU);fxX.fill()}
+  }
+  if(flashAlpha>0){fxX.save();fxX.globalAlpha=flashAlpha;fxX.fillStyle=flashColor;fxX.fillRect(0,0,AW,AH);fxX.restore();flashAlpha=Math.max(0,flashAlpha-dt*4)}
+  if(glowAlpha>0){fxX.save();fxX.globalAlpha=glowAlpha;fxX.strokeStyle=glowColor;fxX.lineWidth=4;fxX.shadowColor=glowColor;fxX.shadowBlur=20;fxX.strokeRect(1,1,AW-2,AH-2);fxX.restore();glowAlpha=Math.max(0,glowAlpha-dt*3)}
+}
+
+function floatNum(text,color,x,y){
+  const el=document.createElement('div');el.className='float-num';
+  el.style.cssText=`color:${color};font-size:16px;left:${x||AW/2-30}px;top:${y||AH/2-20}px`;
+  el.textContent=text;gameArea.appendChild(el);setTimeout(()=>el.remove(),1200);
+}
+
+// ═══ CARDS ═══
+const SUITS=['♠','♥','♦','♣'];const SUIT_COL={'♠':'#e0d4c0','♥':'#ef4444','♦':'#ef4444','♣':'#e0d4c0'};
+const VALUES=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const VAL_NUM={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
+function randomCard(){return{value:VALUES[Math.floor(Math.random()*13)],suit:SUITS[Math.floor(Math.random()*4)]}}
+
+function makeCardEl(card,faceUp=true,animate=true){
+  const el=document.createElement('div');el.className='card'+(animate?' card-enter':'');
+  const col=SUIT_COL[card.suit];
+  el.innerHTML=`<div class="card-inner">
+    <div class="card-face card-front" style="color:${col}">
+      <span class="corner tl">${card.value}<br>${card.suit}</span>
+      <span class="val">${card.value}</span>
+      <span class="suit">${card.suit}</span>
+      <span class="corner br">${card.value}<br>${card.suit}</span>
+    </div>
+    <div class="card-face card-back"></div>
+  </div>`;
+  if(!faceUp)el.classList.add('flipping');
+  return el;
+}
+
+function makeBackCardEl(animate=true){
+  const el=document.createElement('div');el.className='card'+(animate?' card-enter':'');
+  el.innerHTML=`<div class="card-inner" style="transform:rotateY(180deg)">
+    <div class="card-face card-front" id="next-front" style="opacity:0"></div>
+    <div class="card-face card-back"></div>
+  </div>`;
+  el.id='next-card';
+  return el;
+}
+
+// ═══ GAME CONFIG (reads from window.GAME_CONFIG if injected, else defaults) ═══
+const GC = window.GAME_CONFIG || {};
+
+// ═══ GAME STATE ═══
+let balance = GC.balance ?? 1000, currentBet = GC.currentBet ?? 1, profit = 0;
+let gameActive=false,currentCard=null,streak=0,mult=1;
+const bets = GC.bets || [0.10,0.25,0.50,1,2,5,10,25];
+document.getElementById('bet-row').innerHTML=bets.map(b=>`<button class="bb${b===1?' on':''}" onclick="setBet(${b},this)">$${b.toFixed(2)}</button>`).join('');
+function setBet(b,el){if(gameActive)return;currentBet=b;document.querySelectorAll('.bb').forEach(x=>x.classList.remove('on'));el.classList.add('on');updateUI()}
+
+function updateUI(anim=true){
+  odoBal.set(balance,anim);odoBet.set(currentBet,false);
+  if(profit>=0){odoPft.prefix='+$';odoPft.set(profit,anim)}else{odoPft.prefix='-$';odoPft.set(-profit,anim)}
+  document.getElementById('s-pft').className='val'+(profit<0?' neg':'');
+}
+
+function renderCards(){
+  const row=document.getElementById('cards-row');row.innerHTML='';
+  if(currentCard)row.appendChild(makeCardEl(currentCard,true,true));
+  if(gameActive)row.appendChild(makeBackCardEl(true));
+}
+
+async function onPlay(){
+  await Music.ensure();Music.fadeIn();
+  const btn=document.getElementById('play-btn');
+  if(gameActive){
+    // === CASHOUT ===
+    const winAmt=currentBet*mult-currentBet;balance+=currentBet*mult;profit+=winAmt;
+    gameActive=false;
+    Music.cashout();Music.setStreak(0);
+    spawnFX(AW/2,AH/2,'#ffd700',40,200);spawnFX(AW/2,AH/2,'#22c55e',20,120);
+    flashAlpha=.2;flashColor='#22c55e';glowAlpha=.5;glowColor='#22c55e';
+    if(navigator.vibrate)navigator.vibrate([10,20,10,20,30]);
+    document.getElementById('result-msg').innerHTML=`<span style="color:#22c55e">💰 Cashed out ${mult.toFixed(2)}x — +$${winAmt.toFixed(2)}</span>`;
+    floatNum('+$'+winAmt.toFixed(2),'#22c55e');
+    btn.className='play-btn';btn.textContent='START ROUND';
+    document.getElementById('btn-hi').disabled=true;document.getElementById('btn-lo').disabled=true;
+    updateUI();return;
+  }
+  if(balance<currentBet)return;
+  balance-=currentBet;
+  currentCard=randomCard();streak=0;mult=1;gameActive=true;
+  Music.setStreak(0);
+  btn.className='play-btn cashout';btn.textContent='💰 CASH OUT';
+  document.getElementById('btn-hi').disabled=false;document.getElementById('btn-lo').disabled=false;
+  document.getElementById('result-msg').textContent='';
+  document.getElementById('streak').textContent='';
+  document.getElementById('mult-disp').textContent='1.00x';
+  renderCards();updateUI();
+}
+
+async function guess(dir){
+  if(!gameActive)return;
+  document.getElementById('btn-hi').disabled=true;document.getElementById('btn-lo').disabled=true;
+  Music.flip();
+
+  const nextCard=randomCard();
+  const curVal=VAL_NUM[currentCard.value],nextVal=VAL_NUM[nextCard.value];
+
+  // Flip animation
+  const nextEl=document.getElementById('next-card');
+  const inner=nextEl.querySelector('.card-inner');
+  const frontEl=document.getElementById('next-front');
+  frontEl.style.color=SUIT_COL[nextCard.suit];
+  frontEl.innerHTML=`<span class="corner tl">${nextCard.value}<br>${nextCard.suit}</span><span class="val">${nextCard.value}</span><span class="suit">${nextCard.suit}</span><span class="corner br">${nextCard.value}<br>${nextCard.suit}</span>`;
+  frontEl.style.opacity='1';
+  inner.style.transform='rotateY(0deg)';
+
+  const cr=nextEl.getBoundingClientRect(),ar=gameArea.getBoundingClientRect();
+  const px=cr.left-ar.left+cr.width/2,py=cr.top-ar.top+cr.height/2;
+
+  setTimeout(()=>{
+    const won=(dir==='higher'&&nextVal>=curVal)||(dir==='lower'&&nextVal<=curVal);
+    if(won){
+      streak++;
+      mult=parseFloat((1+streak*0.5+streak*streak*0.1).toFixed(2));
+      Music.correct(streak);Music.setStreak(streak);
+      // Particles scale with streak
+      spawnFX(px,py,'#ffd700',10+streak*3,80+streak*15);
+      if(streak>=3)spawnFX(px,py,'#b8860b',5,50);
+      flashAlpha=.06+streak*.02;flashColor='#ffd700';
+      if(streak>=5){glowAlpha=.3;glowColor='#ffd700'}
+      if(navigator.vibrate)navigator.vibrate([8+streak*3]);
+      // Streak display — fire emoji scales
+      const fires='🔥'.repeat(Math.min(streak,10));
+      document.getElementById('streak').innerHTML=`${fires} <b>Streak: ${streak}</b>`;
+      document.getElementById('streak').style.fontSize=(16+Math.min(streak,6))+'px';
+      document.getElementById('mult-disp').textContent=mult.toFixed(2)+'x';
+      document.getElementById('mult-disp').style.fontSize=(28+Math.min(streak*2,12))+'px';
+      document.getElementById('result-msg').innerHTML=`<span style="color:#22c55e">✓ ${nextCard.value}${nextCard.suit}</span>`;
+      floatNum(mult.toFixed(2)+'x','#ffd700',px-20,py-10);
+      currentCard=nextCard;
+      setTimeout(()=>{renderCards();document.getElementById('btn-hi').disabled=false;document.getElementById('btn-lo').disabled=false},550);
+    }else{
+      gameActive=false;profit-=currentBet;
+      Music.wrong();Music.setStreak(0);
+      spawnFX(px,py,'#ef4444',30,180);spawnFX(px,py,'#8b0000',10,100);
+      flashAlpha=.25;flashColor='#ef4444';glowAlpha=.5;glowColor='#ef4444';
+      shakeI=8;shakeT=.35;
+      if(navigator.vibrate)navigator.vibrate([100]);
+      document.getElementById('result-msg').innerHTML=`<span style="color:#ef4444">✗ ${nextCard.value}${nextCard.suit} — Lost $${currentBet.toFixed(2)}</span>`;
+      document.getElementById('streak').textContent='';document.getElementById('streak').style.fontSize='16px';
+      document.getElementById('mult-disp').textContent='0.00x';document.getElementById('mult-disp').style.fontSize='28px';
+      floatNum('-$'+currentBet.toFixed(2),'#ef4444',px-25,py-10);
+      const btn=document.getElementById('play-btn');btn.className='play-btn';btn.textContent='START ROUND';
+      updateUI();
+    }
+  },500);
+}
+
+// ═══ MAIN LOOP ═══
+let _last=performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt=Math.min((now-_last)/1000,.05);_last=now;
+  renderBg(dt,now);
+  updateFX(dt,now);
+  document.getElementById('debug').textContent=`${fxParts.length} parts | streak:${streak}`;
+}
+requestAnimationFrame(frame);
+updateUI(false);renderCards();
+</script>
+</body>
+</html>

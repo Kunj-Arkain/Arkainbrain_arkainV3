@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ARCADE Engine — Phase 3 Showcase</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;500;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#030014;color:#e2e8f0;min-height:100vh;padding:20px}
+.hero{text-align:center;padding:40px 20px 20px}
+.hero h1{font-family:'Orbitron';font-size:24px;font-weight:900;background:linear-gradient(135deg,#6366f1,#06b6d4,#f59e0b);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero p{color:#64748b;margin-top:8px;font-size:13px;max-width:550px;margin-left:auto;margin-right:auto;line-height:1.6}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin:12px 4px 0}
+.badge.p3{background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2)}
+.badge.done{background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.2)}
+
+.section{max-width:900px;margin:30px auto 0}
+.section h2{font-family:'Orbitron';font-size:14px;font-weight:700;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(99,102,241,0.08)}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.card{border-radius:14px;overflow:hidden;border:1px solid rgba(99,102,241,0.08);transition:all .2s;cursor:pointer;text-decoration:none;display:block;position:relative}
+.card:hover{border-color:rgba(99,102,241,0.25);transform:translateY(-2px);box-shadow:0 8px 32px rgba(99,102,241,0.08)}
+.card.v3{border-color:rgba(245,158,11,0.15)}
+.card.v3:hover{border-color:rgba(245,158,11,0.3);box-shadow:0 8px 32px rgba(245,158,11,0.08)}
+.card-top{padding:18px;display:flex;align-items:center;gap:12px}
+.card-icon{font-size:32px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:12px}
+.card-info h3{font-family:'Orbitron';font-size:12px;font-weight:700;color:#e2e8f0;letter-spacing:.5px}
+.card-info .theme{font-size:10px;color:#64748b;margin-top:2px}
+.v3-badge{position:absolute;top:10px;right:10px;padding:2px 8px;border-radius:4px;font-size:8px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#1a0f00}
+.card-features{padding:0 18px 14px}
+.feat{display:inline-block;padding:2px 7px;border-radius:3px;font-size:8px;font-weight:600;margin:1px;background:rgba(99,102,241,0.06);color:#818cf8}
+.feat.new{background:rgba(245,158,11,0.08);color:#f59e0b}
+
+.comparison{max-width:900px;margin:30px auto;padding:20px;border-radius:14px;background:rgba(99,102,241,0.02);border:1px solid rgba(99,102,241,0.06)}
+.comparison h3{font-family:'Orbitron';font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:1px;margin-bottom:10px}
+.comp-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:11px}
+.comp-col h4{font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.comp-col.v3 h4{color:#f59e0b}
+.comp-item{padding:4px 0;color:#64748b;border-bottom:1px solid rgba(99,102,241,0.04)}
+.comp-item b{color:#e2e8f0;font-weight:600}
+.comp-item.new b{color:#f59e0b}
+
+.footer{text-align:center;padding:40px 20px;color:#475569;font-size:11px}
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1>⚡ ARCADE ENGINE</h1>
+  <p>Phase 3: Polish & Juice — The flagship games rebuilt with adaptive music, 4-layer rendering, spring physics on everything, procedural particle systems, progressive tension, and slow-motion effects</p>
+  <span class="badge p3">Phase 3</span>
+  <span class="badge done">All Systems Active</span>
+</div>
+
+<div class="section">
+  <h2>🌟 Phase 3 — Polished Flagships</h2>
+  <div class="grid">
+    <a class="card v3" href="arcade_crash_v3.html" style="background:linear-gradient(135deg,#030014,#0a0025)">
+      <span class="v3-badge">V3 POLISHED</span>
+      <div class="card-top">
+        <div class="card-icon" style="background:rgba(99,102,241,0.08)">🚀</div>
+        <div class="card-info"><h3>COSMIC CRASH</h3><div class="theme">4-layer canvas · Adaptive music · Spring everything</div></div>
+      </div>
+      <div class="card-features">
+        <span class="feat new">Adaptive Music</span>
+        <span class="feat new">4-Layer Canvas</span>
+        <span class="feat new">Heartbeat >3x</span>
+        <span class="feat new">Slow-Mo Crash</span>
+        <span class="feat new">Parallax Stars</span>
+        <span class="feat new">Nebula BG</span>
+        <span class="feat new">Bloom Post-FX</span>
+        <span class="feat new">Mouse Tilt 3D</span>
+        <span class="feat">Spring Physics</span>
+        <span class="feat">Particle Trail</span>
+        <span class="feat">Camera Shake</span>
+      </div>
+    </a>
+
+    <a class="card v3" href="arcade_plinko_v3.html" style="background:linear-gradient(135deg,#000a14,#001525)">
+      <span class="v3-badge">V3 POLISHED</span>
+      <div class="card-top">
+        <div class="card-icon" style="background:rgba(8,145,178,0.08)">❄️</div>
+        <div class="card-info"><h3>GLACIER DROP</h3><div class="theme">Musical harmony · Ball deformation · Ambient drone</div></div>
+      </div>
+      <div class="card-features">
+        <span class="feat new">Pentatonic Chords</span>
+        <span class="feat new">Ambient Drone</span>
+        <span class="feat new">Ball Squash/Stretch</span>
+        <span class="feat new">Depth-Shaded Pegs</span>
+        <span class="feat new">Aurora Background</span>
+        <span class="feat new">Snowfall Ambient</span>
+        <span class="feat new">Bloom on Collision</span>
+        <span class="feat new">Specular Highlights</span>
+        <span class="feat">Ball Physics</span>
+        <span class="feat">Gradient Trail</span>
+        <span class="feat">Spring Slots</span>
+      </div>
+    </a>
+
+    <a class="card v3" href="arcade_mines_v3.html" style="background:linear-gradient(135deg,#05000d,#12002e)">
+      <span class="v3-badge">V3 POLISHED</span>
+      <div class="card-top">
+        <div class="card-icon" style="background:rgba(225,29,72,0.08)">⚡</div>
+        <div class="card-info"><h3>NEON::GRID</h3><div class="theme">Tension drone · Canvas 3D flip · Proximity glow</div></div>
+      </div>
+      <div class="card-features">
+        <span class="feat new">Tension Drone</span>
+        <span class="feat new">Canvas 3D Flip</span>
+        <span class="feat new">Cursor Proximity Glow</span>
+        <span class="feat new">Breathing Tiles</span>
+        <span class="feat new">Confetti Cascade</span>
+        <span class="feat new">Progressive Vignette</span>
+        <span class="feat new">Grid Background</span>
+        <span class="feat new">Chain Reveal Stagger</span>
+        <span class="feat">Particle Explosions</span>
+        <span class="feat">Camera Shake</span>
+        <span class="feat">Screen Flash</span>
+      </div>
+    </a>
+  </div>
+</div>
+
+<div class="comparison">
+  <h3>Phase 2 → Phase 3 Comparison</h3>
+  <div class="comp-grid">
+    <div class="comp-col">
+      <h4>Phase 2 (Foundation)</h4>
+      <div class="comp-item"><b>1 canvas layer</b> — single draw surface</div>
+      <div class="comp-item"><b>Basic beep SFX</b> — single oscillator tones</div>
+      <div class="comp-item"><b>CSS shake</b> — keyframe animation</div>
+      <div class="comp-item"><b>Simple particles</b> — burst on events</div>
+      <div class="comp-item"><b>Static background</b> — CSS gradients</div>
+      <div class="comp-item"><b>Instant state</b> — no transitions between</div>
+      <div class="comp-item"><b>No ambient</b> — silence between actions</div>
+    </div>
+    <div class="comp-col v3">
+      <h4>Phase 3 (Polished)</h4>
+      <div class="comp-item new"><b>4 canvas layers</b> — BG / Main / FX / UI</div>
+      <div class="comp-item new"><b>Adaptive music</b> — drone + chords + heartbeat</div>
+      <div class="comp-item new"><b>Spring camera</b> — physically-modeled shake + zoom</div>
+      <div class="comp-item new"><b>SoA particles</b> — 600 pool, glow/square/circle</div>
+      <div class="comp-item new"><b>Parallax layers</b> — stars + nebula + aurora</div>
+      <div class="comp-item new"><b>Spring transitions</b> — every value animates</div>
+      <div class="comp-item new"><b>Continuous ambient</b> — drone, snow, breath, glow</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>📦 Phase 2 — All 8 Games</h2>
+  <div class="grid">
+    <a class="card" href="arcade_crash_demo.html" style="background:linear-gradient(135deg,#05000d,#12002e)">
+      <div class="card-top"><div class="card-icon" style="background:rgba(99,102,241,0.06)">🚀</div><div class="card-info"><h3>Cosmic Crash</h3><div class="theme">Phase 2 version</div></div></div>
+    </a>
+    <a class="card" href="arcade_plinko_demo.html" style="background:linear-gradient(135deg,#000810,#001830)">
+      <div class="card-top"><div class="card-icon" style="background:rgba(2,132,199,0.06)">❄️</div><div class="card-info"><h3>Glacier Drop</h3><div class="theme">Phase 2 version</div></div></div>
+    </a>
+    <a class="card" href="arcade_mines_demo.html" style="background:linear-gradient(135deg,#05000d,#12002e)">
+      <div class="card-top"><div class="card-icon" style="background:rgba(225,29,72,0.06)">⚡</div><div class="card-info"><h3>Neon Grid</h3><div class="theme">Phase 2 version</div></div></div>
+    </a>
+    <a class="card" href="arcade_dice_demo.html" style="background:linear-gradient(135deg,#1a0000,#2d0a00)">
+      <div class="card-top"><div class="card-icon" style="background:rgba(220,38,38,0.06)">🐉</div><div class="card-info"><h3>Dragon Dice</h3><div class="theme">3D CSS cube</div></div></div>
+    </a>
+    <a class="card" href="arcade_wheel_demo.html" style="background:linear-gradient(135deg,#001520,#002030)">
+      <div class="card-top"><div class="card-icon" style="background:rgba(8,145,178,0.06)">🔱</div><div class="card-info"><h3>Trident Spin</h3><div class="theme">Canvas wheel</div></div></div>
+    </a>
+    <a class="card" href="arcade_hilo_demo.html" style="background:linear-gradient(135deg,#1a0f00,#2d1800)">
+      <div class="card-top"><div class="card-icon" style="background:rgba(184,134,11,0.06)">𓂀</div><div class="card-info"><h3>Pharaoh's Fortune</h3><div class="theme">3D card flip</div></div></div>
+    </a>
+    <a class="card" href="arcade_chicken_demo.html" style="background:linear-gradient(135deg,#001a00,#0a2a0a)">
+      <div class="card-top"><div class="card-icon" style="background:rgba(22,163,74,0.06)">🌿</div><div class="card-info"><h3>Jungle Runner</h3><div class="theme">Lane navigation</div></div></div>
+    </a>
+    <a class="card" href="arcade_scratch_demo.html" style="background:linear-gradient(135deg,#0a0500,#1a0f00)">
+      <div class="card-top"><div class="card-icon" style="background:rgba(161,98,7,0.06)">🎁</div><div class="card-info"><h3>Golden Vault</h3><div class="theme">Canvas scratch</div></div></div>
+    </a>
+  </div>
+</div>
+
+<div class="footer">
+  ARCADE Engine v1 · Phases 1–3 Complete · Zero Dependencies · Procedural Everything
+</div>
+</body>
+</html>

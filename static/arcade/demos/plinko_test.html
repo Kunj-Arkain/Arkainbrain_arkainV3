@@ -1,0 +1,2505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>❄️ Glacier Drop — ARCADE Engine Test</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;700;800&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Quicksand',sans-serif;background:#000810;color:#d4f0ff;min-height:100vh;display:flex;flex-direction:column;-webkit-tap-highlight-color:transparent}
+.hdr{text-align:center;padding:16px 12px 8px}
+.hdr h1{font-size:24px;font-weight:800;background:linear-gradient(135deg,#0284c7,#67e8f9);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:1px}
+.hdr .sub{font-size:11px;color:#6ba8c8;margin-top:3px}
+.bal{display:flex;justify-content:space-between;padding:8px 16px;background:rgba(2,132,199,0.05);border-top:1px solid rgba(56,189,248,0.1);border-bottom:1px solid rgba(56,189,248,0.1);font-size:12px;backdrop-filter:blur(8px)}
+.bal .l{color:#6ba8c8}.bal .v{font-weight:700;color:#67e8f9}
+.area{flex:1;display:flex;align-items:center;justify-content:center;padding:12px;min-height:350px}
+#gc{width:100%;max-width:500px;aspect-ratio:4/3;background:transparent;border-radius:10px;border:1px solid rgba(56,189,248,0.12);position:relative;overflow:hidden}
+.ctl{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(2,132,199,0.05);border-top:1px solid rgba(56,189,248,0.1);backdrop-filter:blur(8px)}
+.brow{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(56,189,248,0.1);background:transparent;color:#d4f0ff;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover,.bb.on{background:#0284c7;border-color:#0284c7;color:#fff;box-shadow:0 0 12px rgba(2,132,199,0.4)}
+.pb{width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#0284c7,#67e8f9);color:#fff;font-family:'Quicksand',sans-serif;font-size:16px;font-weight:700;cursor:pointer;transition:transform .1s,box-shadow .2s;letter-spacing:1px;text-transform:uppercase}
+.pb:hover{transform:scale(1.01);box-shadow:0 4px 20px rgba(2,132,199,0.4)}.pb:active{transform:scale(0.98)}
+.stats{text-align:center;padding:8px;font-size:10px;color:#4a7a95}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h1>❄️ Glacier Drop</h1>
+  <div class="sub">ARCADE Engine Test · Plinko with Physics & Particles</div>
+</div>
+<div class="bal">
+  <div><span class="l">Balance </span><span class="v" id="bal-val">$1,000.00</span></div>
+  <div><span class="l">Bet </span><span class="v" id="bet-val">$1.00</span></div>
+</div>
+<div class="area"><div id="gc"></div></div>
+<div class="ctl">
+  <div class="brow">
+    <button class="bb" data-bet="0.1" onclick="setBet(0.1)">$0.10</button>
+    <button class="bb" data-bet="0.5" onclick="setBet(0.5)">$0.50</button>
+    <button class="bb on" data-bet="1" onclick="setBet(1)">$1.00</button>
+    <button class="bb" data-bet="5" onclick="setBet(5)">$5.00</button>
+    <button class="bb" data-bet="10" onclick="setBet(10)">$10.00</button>
+  </div>
+  <button class="pb" onclick="dropBall()">DROP BALL</button>
+</div>
+<div class="stats" id="stats"></div>
+<script>
+// ARCADE ENGINE v1.0 — Bundled
+'use strict';
+
+// ── engine/core.js (149 lines) ──
+// ═══════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Core Game Loop & State Machine
+// ═══════════════════════════════════════════════════════════════
+
+const GameState = {
+  IDLE: 'idle',
+  BETTING: 'betting',
+  PLAYING: 'playing',
+  RESOLVING: 'resolving',
+  RESULT: 'result',
+  ANIMATING: 'animating',
+};
+
+class GameLoop {
+  constructor() {
+    this.running = false;
+    this.paused = false;
+    this.rafId = null;
+    this.lastTime = 0;
+    this.accumulator = 0;
+    this.fixedDT = 1000 / 60;
+    this.maxAccumulator = 200;
+    this.timeScale = 1.0;
+    this.frame = 0;
+    this.elapsed = 0;           // total elapsed seconds
+    this.fps = 60;
+    this.fpsSmooth = 60;
+    this._fpsBuf = new Float32Array(60);
+    this._fpsIdx = 0;
+    this._fpsFill = 0;
+    this.perfTier = 'high';     // high | medium | low
+    this._degradeCount = 0;
+
+    this.state = GameState.IDLE;
+    this.stateData = {};
+    this._stateListeners = {};
+    this.systems = [];
+
+    this._boundTick = this._tick.bind(this);
+    this._boundVis = this._onVis.bind(this);
+    document.addEventListener('visibilitychange', this._boundVis);
+  }
+
+  addSystem(sys) { this.systems.push(sys); return this; }
+  removeSystem(sys) { const i = this.systems.indexOf(sys); if (i >= 0) this.systems.splice(i, 1); }
+
+  setState(s, data = {}) {
+    const prev = this.state;
+    if (prev === s) return;
+    this.state = s;
+    this.stateData = data;
+    (this._stateListeners[s] || []).forEach(fn => fn(data, prev));
+  }
+
+  onState(s, fn) {
+    (this._stateListeners[s] || (this._stateListeners[s] = [])).push(fn);
+    return this;
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this.lastTime = performance.now();
+    this.accumulator = 0;
+    this.rafId = requestAnimationFrame(this._boundTick);
+  }
+
+  stop() {
+    this.running = false;
+    if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+  }
+
+  _tick(now) {
+    if (!this.running) return;
+    this.rafId = requestAnimationFrame(this._boundTick);
+    if (this.paused) return;
+
+    let rawDT = now - this.lastTime;
+    this.lastTime = now;
+    if (rawDT > this.maxAccumulator) rawDT = this.fixedDT;
+
+    // FPS
+    const instantFPS = rawDT > 0 ? 1000 / rawDT : 60;
+    this._fpsBuf[this._fpsIdx] = instantFPS;
+    this._fpsIdx = (this._fpsIdx + 1) % 60;
+    this._fpsFill = Math.min(this._fpsFill + 1, 60);
+    let sum = 0;
+    for (let i = 0; i < this._fpsFill; i++) sum += this._fpsBuf[i];
+    this.fps = instantFPS;
+    this.fpsSmooth = sum / this._fpsFill;
+
+    // Auto-degrade
+    if (this.fpsSmooth < 35) {
+      if (++this._degradeCount > 90) {
+        if (this.perfTier === 'high') this.perfTier = 'medium';
+        else if (this.perfTier === 'medium') this.perfTier = 'low';
+        this._degradeCount = 0;
+      }
+    } else {
+      this._degradeCount = Math.max(0, this._degradeCount - 2);
+    }
+
+    const scaled = rawDT * this.timeScale;
+    this.accumulator += scaled;
+    const step = this.fixedDT * this.timeScale;
+    const dtSec = step / 1000;
+
+    let steps = 0;
+    while (this.accumulator >= step && steps < 5) {
+      for (const sys of this.systems) if (sys.update) sys.update(dtSec, this);
+      this.accumulator -= step;
+      this.elapsed += dtSec;
+      steps++;
+    }
+
+    const alpha = this.accumulator / step;
+    for (const sys of this.systems) if (sys.render) sys.render(alpha, this);
+    this.frame++;
+  }
+
+  _onVis() {
+    if (document.hidden) {
+      this.paused = true;
+    } else {
+      this.paused = false;
+      this.lastTime = performance.now();
+      this.accumulator = 0;
+    }
+  }
+
+  setTimeScale(target, duration = 0) {
+    if (duration <= 0) { this.timeScale = target; return; }
+    const from = this.timeScale;
+    const t0 = performance.now();
+    const step = () => {
+      const p = Math.min((performance.now() - t0) / duration, 1);
+      this.timeScale = from + (target - from) * p * p;  // ease-in
+      if (p < 1) requestAnimationFrame(step);
+    };
+    step();
+  }
+
+  destroy() {
+    this.stop();
+    document.removeEventListener('visibilitychange', this._boundVis);
+    this.systems.length = 0;
+    this._stateListeners = {};
+  }
+}
+
+
+// ── engine/easing.js (178 lines) ──
+// ═══════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Easing Functions & Spring Physics
+// ═══════════════════════════════════════════════════════════════
+
+const Ease = {
+  // Linear
+  linear: t => t,
+
+  // Quad
+  inQuad: t => t * t,
+  outQuad: t => t * (2 - t),
+  inOutQuad: t => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
+
+  // Cubic
+  inCubic: t => t * t * t,
+  outCubic: t => (--t) * t * t + 1,
+  inOutCubic: t => t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1,
+
+  // Quart
+  inQuart: t => t * t * t * t,
+  outQuart: t => 1 - (--t) * t * t * t,
+  inOutQuart: t => t < 0.5 ? 8 * t * t * t * t : 1 - 8 * (--t) * t * t * t,
+
+  // Quint
+  inQuint: t => t * t * t * t * t,
+  outQuint: t => 1 + (--t) * t * t * t * t,
+  inOutQuint: t => t < 0.5 ? 16 * t * t * t * t * t : 1 + 16 * (--t) * t * t * t * t,
+
+  // Sine
+  inSine: t => 1 - Math.cos(t * Math.PI / 2),
+  outSine: t => Math.sin(t * Math.PI / 2),
+  inOutSine: t => -(Math.cos(Math.PI * t) - 1) / 2,
+
+  // Expo
+  inExpo: t => t === 0 ? 0 : Math.pow(2, 10 * (t - 1)),
+  outExpo: t => t === 1 ? 1 : 1 - Math.pow(2, -10 * t),
+  inOutExpo: t => {
+    if (t === 0 || t === 1) return t;
+    return t < 0.5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2;
+  },
+
+  // Circ
+  inCirc: t => 1 - Math.sqrt(1 - t * t),
+  outCirc: t => Math.sqrt(1 - (--t) * t),
+  inOutCirc: t => t < 0.5 ? (1 - Math.sqrt(1 - 4 * t * t)) / 2 : (Math.sqrt(1 - (-2 * t + 2) * (-2 * t + 2)) + 1) / 2,
+
+  // Back (overshoot)
+  inBack: t => { const s = 1.70158; return t * t * ((s + 1) * t - s); },
+  outBack: t => { const s = 1.70158; return (t -= 1) * t * ((s + 1) * t + s) + 1; },
+  inOutBack: t => {
+    const s = 1.70158 * 1.525;
+    if (t < 0.5) return (2 * t) * (2 * t) * ((s + 1) * 2 * t - s) / 2;
+    return ((2 * t - 2) * (2 * t - 2) * ((s + 1) * (2 * t - 2) + s) + 2) / 2;
+  },
+
+  // Elastic
+  inElastic: t => {
+    if (t === 0 || t === 1) return t;
+    return -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * (2 * Math.PI / 3));
+  },
+  outElastic: t => {
+    if (t === 0 || t === 1) return t;
+    return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
+  },
+  inOutElastic: t => {
+    if (t === 0 || t === 1) return t;
+    const s = (2 * Math.PI) / 4.5;
+    if (t < 0.5) return -(Math.pow(2, 20 * t - 10) * Math.sin((20 * t - 11.125) * s)) / 2;
+    return (Math.pow(2, -20 * t + 10) * Math.sin((20 * t - 11.125) * s)) / 2 + 1;
+  },
+
+  // Bounce
+  outBounce: t => {
+    const n1 = 7.5625, d1 = 2.75;
+    if (t < 1 / d1) return n1 * t * t;
+    if (t < 2 / d1) return n1 * (t -= 1.5 / d1) * t + 0.75;
+    if (t < 2.5 / d1) return n1 * (t -= 2.25 / d1) * t + 0.9375;
+    return n1 * (t -= 2.625 / d1) * t + 0.984375;
+  },
+  inBounce: t => 1 - Ease.outBounce(1 - t),
+  inOutBounce: t => t < 0.5 ? (1 - Ease.outBounce(1 - 2 * t)) / 2 : (1 + Ease.outBounce(2 * t - 1)) / 2,
+
+  // Custom: hard stop (for discrete steps)
+  step: t => t < 1 ? 0 : 1,
+
+  // Custom: smooth step
+  smoothStep: t => t * t * (3 - 2 * t),
+  smootherStep: t => t * t * t * (t * (t * 6 - 15) + 10),
+};
+
+/** Resolve easing by name string or function */
+function resolveEase(e) {
+  if (typeof e === 'function') return e;
+  return Ease[e] || Ease.outCubic;
+}
+
+
+// ── Spring Physics Solver ──
+// Critically damped / underdamped spring for natural "juicy" motion
+
+class Spring {
+  constructor(opts = {}) {
+    this.value = opts.from ?? 0;
+    this.target = opts.to ?? 1;
+    this.velocity = opts.velocity ?? 0;
+    this.stiffness = opts.stiffness ?? 180;    // spring constant k
+    this.damping = opts.damping ?? 12;         // damping coefficient c
+    this.mass = opts.mass ?? 1;
+    this.restThreshold = opts.restThreshold ?? 0.001;
+    this.onUpdate = opts.onUpdate || null;
+    this.onRest = opts.onRest || null;
+    this.atRest = false;
+  }
+
+  /** Advance spring by dt seconds. Returns current value. */
+  step(dt) {
+    if (this.atRest) return this.value;
+
+    // Clamp dt to prevent instability
+    dt = Math.min(dt, 0.064);
+
+    const displacement = this.value - this.target;
+    const springForce = -this.stiffness * displacement;
+    const dampingForce = -this.damping * this.velocity;
+    const acceleration = (springForce + dampingForce) / this.mass;
+
+    this.velocity += acceleration * dt;
+    this.value += this.velocity * dt;
+
+    // Check if at rest
+    if (Math.abs(this.velocity) < this.restThreshold &&
+        Math.abs(this.value - this.target) < this.restThreshold) {
+      this.value = this.target;
+      this.velocity = 0;
+      this.atRest = true;
+      if (this.onRest) this.onRest(this.value);
+    }
+
+    if (this.onUpdate) this.onUpdate(this.value, this.velocity);
+    return this.value;
+  }
+
+  /** Snap to new target with optional impulse velocity */
+  setTarget(target, impulse = 0) {
+    this.target = target;
+    this.velocity += impulse;
+    this.atRest = false;
+  }
+
+  /** Reset to a value instantly */
+  reset(val) {
+    this.value = val;
+    this.target = val;
+    this.velocity = 0;
+    this.atRest = true;
+  }
+}
+
+
+// ── Spring-animated property helper ──
+// Usage: const s = springProp(obj, 'scale', { stiffness: 200, damping: 14 });
+//        s.to(1.3);  // bouncy scale to 1.3
+
+function springProp(obj, prop, opts = {}) {
+  const spring = new Spring({
+    from: obj[prop] ?? 0,
+    to: obj[prop] ?? 0,
+    ...opts,
+    onUpdate: (v) => { obj[prop] = v; },
+  });
+  return {
+    spring,
+    to(val, impulse = 0) { spring.setTarget(val, impulse); },
+    step(dt) { return spring.step(dt); },
+    get value() { return spring.value; },
+    get atRest() { return spring.atRest; },
+  };
+}
+
+
+// ── engine/tween.js (105 lines) ──
+// ═══════════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Tween Animation System
+// ═══════════════════════════════════════════════════════════════════
+ARCADE.Tween = (() => {
+  const _active = [];
+
+  function parseColor(c) {
+    if(typeof c==='string'&&c.startsWith('#')){const h=c.slice(1);const n=h.length===3?parseInt(h[0]+h[0]+h[1]+h[1]+h[2]+h[2],16):parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
+    if(typeof c==='string'){const m=c.match(/\d+/g);if(m)return m.slice(0,3).map(Number);}return[0,0,0];
+  }
+  function lerpColor(a,b,t) {
+    const ac=parseColor(a),bc=parseColor(b);
+    return `rgb(${Math.round(ac[0]+(bc[0]-ac[0])*t)},${Math.round(ac[1]+(bc[1]-ac[1])*t)},${Math.round(ac[2]+(bc[2]-ac[2])*t)})`;
+  }
+
+  class Tw {
+    constructor(target) {
+      this._target=target; this._steps=[]; this._currentStep=0;
+      this._elapsed=0; this._delayElapsed=0; this._startValues={};
+      this._onUpdate=null; this._onComplete=null; this._onStepComplete=null;
+      this._loop=0; this._loopCount=0; this._yoyo=false; this._forward=true;
+      this._cancelled=false; this._paused=false;
+    }
+    to(props, duration, ease='outCubic') {
+      this._steps.push({props,duration,ease:typeof ease==='string'?ARCADE.Ease.get(ease):ease,delay:0}); return this;
+    }
+    wait(ms) { this._steps.push({props:{},duration:0,ease:ARCADE.Ease.linear,delay:ms}); return this; }
+    ease(e) { if(this._steps.length>0) this._steps[this._steps.length-1].ease=typeof e==='string'?ARCADE.Ease.get(e):e; return this; }
+    delay(ms) { if(this._steps.length>0) this._steps[this._steps.length-1].delay=ms; return this; }
+    loop(count=-1) { this._loop=count; return this; }
+    yoyo() { this._yoyo=true; return this; }
+    onUpdate(fn) { this._onUpdate=fn; return this; }
+    onComplete(fn) { this._onComplete=fn; return this; }
+    onStepComplete(fn) { this._onStepComplete=fn; return this; }
+
+    start() {
+      if(this._steps.length===0) return this;
+      this._currentStep=0; this._elapsed=0; this._delayElapsed=0;
+      this._captureStart(); _active.push(this); return this;
+    }
+    cancel() { this._cancelled=true; }
+    pause() { this._paused=true; }
+    resume() { this._paused=false; }
+
+    _captureStart() {
+      const step=this._steps[this._currentStep]; if(!step) return;
+      this._startValues={}; for(const key of Object.keys(step.props)) this._startValues[key]=this._target[key]??0;
+    }
+    _update(dtMs) {
+      if(this._cancelled||this._paused) return !this._cancelled;
+      const step=this._steps[this._currentStep];
+      if(!step){if(this._onComplete)this._onComplete();return false;}
+      if(step.delay>0&&this._delayElapsed<step.delay){this._delayElapsed+=dtMs;return true;}
+      if(step.duration<=0){this._nextStep();return true;}
+      this._elapsed+=dtMs;
+      let t=Math.min(this._elapsed/step.duration,1);
+      const eased=step.ease(this._forward?t:1-t);
+      for(const[key,end] of Object.entries(step.props)){
+        const start=this._startValues[key];
+        if(typeof start==='string'||typeof end==='string') this._target[key]=t>=1?end:lerpColor(start,end,eased);
+        else this._target[key]=start+(end-start)*eased;
+      }
+      if(this._onUpdate) this._onUpdate(this._target,t);
+      if(t>=1) this._nextStep();
+      return true;
+    }
+    _nextStep() {
+      if(this._onStepComplete) this._onStepComplete(this._currentStep);
+      this._currentStep++; this._elapsed=0; this._delayElapsed=0;
+      if(this._currentStep>=this._steps.length){
+        if(this._loop===-1||this._loopCount<this._loop){
+          this._loopCount++; if(this._yoyo) this._forward=!this._forward;
+          this._currentStep=0; this._captureStart();
+        } else { if(this._onComplete) this._onComplete(); return; }
+      }
+      this._captureStart();
+    }
+  }
+
+  ARCADE._registerUpdate(function tweenUpdate(dt) {
+    const ms=dt*1000;
+    for(let i=_active.length-1;i>=0;i--) if(!_active[i]._update(ms)) _active.splice(i,1);
+  });
+
+  function tween(target) { return new Tw(target); }
+  function cancelAll() { for(const t of _active) t._cancelled=true; _active.length=0; }
+  function count() { return _active.length; }
+
+  function animate(from,to,duration,ease,fn,onDone) {
+    const obj={v:from};
+    return tween(obj).to({v:to},duration,ease).onUpdate(()=>fn(obj.v)).onComplete(()=>{fn(to);if(onDone)onDone();}).start();
+  }
+
+  function sequence(...tweens) {
+    let idx=0;
+    function runNext(){if(idx>=tweens.length)return;tweens[idx++].onComplete(runNext).start();}
+    return {start(){runNext();return this;}};
+  }
+
+  function parallel(...tweens) {
+    return {start(){for(const tw of tweens) tw.start();return this;}};
+  }
+
+  return { tween, animate, sequence, parallel, cancelAll, count, lerpColor };
+})();
+
+
+// ── engine/renderer.js (260 lines) ──
+// ═══════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Canvas Renderer (Dual-Layer + Sprite Cache)
+// ═══════════════════════════════════════════════════════════════
+
+class Renderer {
+  constructor(container, opts = {}) {
+    this.container = typeof container === 'string' ? document.getElementById(container) : container;
+    this.dpr = Math.min(window.devicePixelRatio || 1, opts.maxDPR || 2);
+    this.width = 0;
+    this.height = 0;
+
+    // Create dual-layer canvases
+    this.bgCanvas = this._createCanvas('arcade-bg', 1);
+    this.fgCanvas = this._createCanvas('arcade-fg', 2);
+    this.bgCtx = this.bgCanvas.getContext('2d');
+    this.fgCtx = this.fgCanvas.getContext('2d');
+
+    // Offscreen buffer for post-processing
+    this._offscreen = document.createElement('canvas');
+    this._offCtx = this._offscreen.getContext('2d');
+
+    // Sprite cache (emoji / text → bitmap)
+    this._spriteCache = new Map();
+    this._maxCacheSize = 100;
+
+    // Post-processing stack
+    this._postFX = [];
+
+    // 3D perspective settings
+    this.perspective = opts.perspective || 0;    // 0 = disabled
+    this.tiltX = 0;
+    this.tiltY = 0;
+
+    // Resize
+    this._resizeObserver = new ResizeObserver(() => this.resize());
+    this._resizeObserver.observe(this.container);
+    this.resize();
+  }
+
+  _createCanvas(id, zIndex) {
+    const c = document.createElement('canvas');
+    c.id = id;
+    c.style.cssText = `position:absolute;inset:0;width:100%;height:100%;z-index:${zIndex};`;
+    this.container.appendChild(c);
+    return c;
+  }
+
+  resize() {
+    const rect = this.container.getBoundingClientRect();
+    this.width = rect.width;
+    this.height = rect.height;
+    const w = Math.round(rect.width * this.dpr);
+    const h = Math.round(rect.height * this.dpr);
+
+    for (const c of [this.bgCanvas, this.fgCanvas, this._offscreen]) {
+      c.width = w;
+      c.height = h;
+    }
+
+    // Scale contexts for DPR
+    this.bgCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.fgCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this._offCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+
+    // Apply 3D perspective if enabled
+    if (this.perspective > 0) {
+      this.container.style.perspective = this.perspective + 'px';
+      this.container.style.perspectiveOrigin = '50% 50%';
+    }
+  }
+
+  /** Clear foreground (call every frame) */
+  clear() {
+    this.fgCtx.clearRect(0, 0, this.width, this.height);
+  }
+
+  /** Clear background (call on init or theme change) */
+  clearBG() {
+    this.bgCtx.clearRect(0, 0, this.width, this.height);
+  }
+
+  /** Get sprite bitmap from cache (or render it) */
+  getSprite(text, size = 32, color = null) {
+    const key = `${text}_${size}_${color}`;
+    if (this._spriteCache.has(key)) return this._spriteCache.get(key);
+
+    // Evict oldest if cache full
+    if (this._spriteCache.size >= this._maxCacheSize) {
+      const firstKey = this._spriteCache.keys().next().value;
+      this._spriteCache.delete(firstKey);
+    }
+
+    const padding = 4;
+    const canvasSize = size + padding * 2;
+    const offC = document.createElement('canvas');
+    offC.width = canvasSize * 2;  // extra space for emoji
+    offC.height = canvasSize * 2;
+    const offCtx = offC.getContext('2d');
+
+    offCtx.font = `${size}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif`;
+    offCtx.textAlign = 'center';
+    offCtx.textBaseline = 'middle';
+
+    if (color) {
+      offCtx.fillStyle = color;
+    }
+    offCtx.fillText(text, canvasSize, canvasSize);
+
+    const sprite = {
+      canvas: offC,
+      width: canvasSize * 2,
+      height: canvasSize * 2,
+      cx: canvasSize,
+      cy: canvasSize,
+    };
+
+    this._spriteCache.set(key, sprite);
+    return sprite;
+  }
+
+  /** Draw a cached sprite centered at (x, y) with optional transforms */
+  drawSprite(ctx, text, x, y, size = 32, opts = {}) {
+    const sprite = this.getSprite(text, size, opts.color);
+    const scale = (opts.scale || 1);
+    const rotation = opts.rotation || 0;
+    const alpha = opts.alpha ?? 1;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    if (rotation) ctx.rotate(rotation);
+    if (scale !== 1) ctx.scale(scale, scale);
+    ctx.drawImage(
+      sprite.canvas,
+      -sprite.cx, -sprite.cy
+    );
+    ctx.restore();
+  }
+
+  /** Draw a rounded rectangle */
+  roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  /** Draw a circle with optional glow */
+  drawCircle(ctx, x, y, r, fill, opts = {}) {
+    ctx.save();
+    if (opts.glow) {
+      ctx.shadowColor = opts.glow;
+      ctx.shadowBlur = opts.glowSize || 15;
+    }
+    if (opts.alpha !== undefined) ctx.globalAlpha = opts.alpha;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    if (opts.stroke) {
+      ctx.strokeStyle = opts.stroke;
+      ctx.lineWidth = opts.lineWidth || 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** Draw a line with optional glow */
+  drawLine(ctx, x1, y1, x2, y2, color, width = 1, opts = {}) {
+    ctx.save();
+    if (opts.glow) {
+      ctx.shadowColor = opts.glow;
+      ctx.shadowBlur = opts.glowSize || 8;
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = opts.cap || 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Gradient fill helper */
+  createGradient(ctx, x1, y1, x2, y2, stops) {
+    const g = ctx.createLinearGradient(x1, y1, x2, y2);
+    for (const [pos, color] of stops) g.addColorStop(pos, color);
+    return g;
+  }
+
+  /** Radial gradient helper */
+  createRadialGradient(ctx, cx, cy, r, stops) {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    for (const [pos, color] of stops) g.addColorStop(pos, color);
+    return g;
+  }
+
+  /** Apply 3D tilt transform to the foreground canvas */
+  setTilt(x, y) {
+    this.tiltX = x;
+    this.tiltY = y;
+    if (this.perspective > 0) {
+      this.fgCanvas.style.transform = `rotateX(${-y}deg) rotateY(${x}deg)`;
+    }
+  }
+
+  /** Post-processing: bloom/glow effect on the foreground */
+  applyBloom(strength = 0.3) {
+    const ctx = this.fgCtx;
+    const w = this.width;
+    const h = this.height;
+    this._offCtx.clearRect(0, 0, w, h);
+    this._offCtx.filter = `blur(${8 * strength}px) brightness(${1 + strength})`;
+    this._offCtx.drawImage(this.fgCanvas, 0, 0, w, h);
+    this._offCtx.filter = 'none';
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = strength;
+    ctx.drawImage(this._offscreen, 0, 0, w, h);
+    ctx.restore();
+  }
+
+  /** Screen flash overlay */
+  flash(color, alpha = 0.3) {
+    const ctx = this.fgCtx;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.restore();
+  }
+
+  /** Vignette overlay */
+  drawVignette(ctx, strength = 0.4) {
+    const g = ctx.createRadialGradient(
+      this.width / 2, this.height / 2, this.width * 0.25,
+      this.width / 2, this.height / 2, this.width * 0.7,
+    );
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, `rgba(0,0,0,${strength})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, this.width, this.height);
+  }
+
+  destroy() {
+    this._resizeObserver.disconnect();
+    this.bgCanvas.remove();
+    this.fgCanvas.remove();
+    this._spriteCache.clear();
+  }
+}
+
+
+// ── engine/physics.js (139 lines) ──
+// ═══════════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Physics (Verlet Integration + Collisions)
+// ═══════════════════════════════════════════════════════════════════
+ARCADE.Physics = (() => {
+  const _bodies = [], _statics = [];
+  let _gravity = { x: 0, y: 600 }, _bounds = null;
+
+  class Body {
+    constructor(opts = {}) {
+      this.x = opts.x||0; this.y = opts.y||0;
+      this.prevX = this.x; this.prevY = this.y;
+      this.ax = 0; this.ay = 0;
+      this.radius = opts.radius||5; this.mass = opts.mass||1;
+      this.restitution = opts.restitution ?? 0.6;
+      this.friction = opts.friction ?? 0.99;
+      this.damping = opts.damping ?? 0.999;
+      this.active = true; this.userData = opts.userData||null;
+      this.onCollide = opts.onCollide||null;
+    }
+    get vx() { return this.x - this.prevX; }
+    get vy() { return this.y - this.prevY; }
+    get speed() { return Math.sqrt(this.vx*this.vx + this.vy*this.vy); }
+    setVelocity(vx, vy) { this.prevX = this.x - vx; this.prevY = this.y - vy; }
+    addForce(fx, fy) { this.ax += fx/this.mass; this.ay += fy/this.mass; }
+    impulse(ix, iy) { this.prevX -= ix; this.prevY -= iy; }
+  }
+
+  class StaticCircle {
+    constructor(x, y, radius, opts={}) { this.x=x; this.y=y; this.radius=radius; this.restitution=opts.restitution??0.5; this.userData=opts.userData||null; this.type='circle'; }
+  }
+  class StaticLine {
+    constructor(x1,y1,x2,y2,opts={}) {
+      this.x1=x1;this.y1=y1;this.x2=x2;this.y2=y2;this.restitution=opts.restitution??0.5;this.userData=opts.userData||null;this.type='line';
+      const dx=x2-x1,dy=y2-y1; this.length=Math.sqrt(dx*dx+dy*dy); this.nx=-dy/this.length; this.ny=dx/this.length;
+    }
+  }
+  class StaticRect {
+    constructor(x,y,w,h,opts={}) { this.x=x;this.y=y;this.w=w;this.h=h;this.restitution=opts.restitution??0.3;this.userData=opts.userData||null;this.type='rect'; }
+  }
+
+  function addBody(opts) { const b=new Body(opts); _bodies.push(b); return b; }
+  function addCircle(x,y,r,opts) { const s=new StaticCircle(x,y,r,opts); _statics.push(s); return s; }
+  function addLine(x1,y1,x2,y2,opts) { const s=new StaticLine(x1,y1,x2,y2,opts); _statics.push(s); return s; }
+  function addRect(x,y,w,h,opts) { const s=new StaticRect(x,y,w,h,opts); _statics.push(s); return s; }
+  function removeBody(b) { const i=_bodies.indexOf(b); if(i>=0) _bodies.splice(i,1); }
+  function removeStatic(s) { const i=_statics.indexOf(s); if(i>=0) _statics.splice(i,1); }
+  function clear() { _bodies.length=0; _statics.length=0; }
+  function setGravity(x,y) { _gravity.x=x; _gravity.y=y; }
+  function setBounds(x,y,w,h) { _bounds={x,y,w,h}; }
+
+  function update(dt) {
+    const dtSq = dt*dt;
+    for (const b of _bodies) {
+      if (!b.active) continue;
+      const cx=b.x, cy=b.y;
+      b.x = 2*b.x - b.prevX + (b.ax+_gravity.x)*dtSq;
+      b.y = 2*b.y - b.prevY + (b.ay+_gravity.y)*dtSq;
+      b.prevX = cx + (cx-b.prevX)*(1-(1-b.damping));
+      b.prevY = cy + (cy-b.prevY)*(1-(1-b.damping));
+      b.ax=0; b.ay=0;
+      if (_bounds) {
+        if (b.x-b.radius<_bounds.x){b.x=_bounds.x+b.radius;b.prevX=b.x+(b.x-b.prevX)*b.restitution;}
+        if (b.x+b.radius>_bounds.x+_bounds.w){b.x=_bounds.x+_bounds.w-b.radius;b.prevX=b.x+(b.x-b.prevX)*b.restitution;}
+        if (b.y-b.radius<_bounds.y){b.y=_bounds.y+b.radius;b.prevY=b.y+(b.y-b.prevY)*b.restitution;}
+        if (b.y+b.radius>_bounds.y+_bounds.h){b.y=_bounds.y+_bounds.h-b.radius;b.prevY=b.y+(b.y-b.prevY)*b.restitution;}
+      }
+    }
+    _resolveCollisions();
+  }
+
+  function _resolveCollisions() {
+    for (const b of _bodies) {
+      if (!b.active) continue;
+      for (const s of _statics) {
+        if (s.type==='circle') _bodyVsCircle(b,s);
+        else if (s.type==='line') _bodyVsLine(b,s);
+        else if (s.type==='rect') _bodyVsRect(b,s);
+      }
+    }
+    for (let i=0;i<_bodies.length;i++) for (let j=i+1;j<_bodies.length;j++) _bodyVsBody(_bodies[i],_bodies[j]);
+  }
+
+  function _reflect(b, nx, ny, overlap, sRest) {
+    b.x += nx*overlap; b.y += ny*overlap;
+    const vx=b.x-b.prevX, vy=b.y-b.prevY;
+    const dot = vx*nx + vy*ny;
+    const rest = Math.min(b.restitution, sRest);
+    b.prevX = b.x - (vx - 2*dot*nx*rest)*b.friction;
+    b.prevY = b.y - (vy - 2*dot*ny*rest)*b.friction;
+  }
+
+  function _bodyVsCircle(b, s) {
+    const dx=b.x-s.x, dy=b.y-s.y, dist=Math.sqrt(dx*dx+dy*dy), minD=b.radius+s.radius;
+    if (dist>=minD||dist<0.001) return;
+    const nx=dx/dist,ny=dy/dist,overlap=minD-dist;
+    _reflect(b,nx,ny,overlap,s.restitution);
+    if (b.onCollide) b.onCollide(s,{x:nx,y:ny},overlap);
+  }
+
+  function _bodyVsLine(b, s) {
+    const dx=s.x2-s.x1, dy=s.y2-s.y1;
+    const t=Math.max(0,Math.min(1,((b.x-s.x1)*dx+(b.y-s.y1)*dy)/(s.length*s.length)));
+    const cx=s.x1+t*dx, cy=s.y1+t*dy;
+    const bx=b.x-cx, by=b.y-cy, dist=Math.sqrt(bx*bx+by*by);
+    if (dist>=b.radius||dist<0.001) return;
+    const nx=bx/dist,ny=by/dist,overlap=b.radius-dist;
+    _reflect(b,nx,ny,overlap,s.restitution);
+    if (b.onCollide) b.onCollide(s,{x:nx,y:ny},overlap);
+  }
+
+  function _bodyVsRect(b, s) {
+    const cx=Math.max(s.x,Math.min(b.x,s.x+s.w)), cy=Math.max(s.y,Math.min(b.y,s.y+s.h));
+    const dx=b.x-cx,dy=b.y-cy,dist=Math.sqrt(dx*dx+dy*dy);
+    if (dist>=b.radius||dist<0.001) return;
+    const nx=dx/dist,ny=dy/dist,overlap=b.radius-dist;
+    _reflect(b,nx,ny,overlap,s.restitution);
+    if (b.onCollide) b.onCollide(s,{x:nx,y:ny},overlap);
+  }
+
+  function _bodyVsBody(a, b2) {
+    if (!a.active||!b2.active) return;
+    const dx=b2.x-a.x,dy=b2.y-a.y,dist=Math.sqrt(dx*dx+dy*dy),minD=a.radius+b2.radius;
+    if (dist>=minD||dist<0.001) return;
+    const nx=dx/dist,ny=dy/dist,overlap=minD-dist,totalM=a.mass+b2.mass;
+    a.x-=nx*overlap*(b2.mass/totalM); a.y-=ny*overlap*(b2.mass/totalM);
+    b2.x+=nx*overlap*(a.mass/totalM); b2.y+=ny*overlap*(a.mass/totalM);
+    const av={x:a.x-a.prevX,y:a.y-a.prevY},bv={x:b2.x-b2.prevX,y:b2.y-b2.prevY};
+    const relDot=(av.x-bv.x)*nx+(av.y-bv.y)*ny;
+    if (relDot>0) return;
+    const rest=Math.min(a.restitution,b2.restitution), j=-(1+rest)*relDot/totalM;
+    a.prevX=a.x-(av.x-j*b2.mass*nx); a.prevY=a.y-(av.y-j*b2.mass*ny);
+    b2.prevX=b2.x-(bv.x+j*a.mass*nx); b2.prevY=b2.y-(bv.y+j*a.mass*ny);
+  }
+
+  function raycastBodies(x,y) { return _bodies.filter(b=>{const dx=x-b.x,dy=y-b.y;return dx*dx+dy*dy<=b.radius*b.radius;}); }
+  function raycastStatics(x,y) { return _statics.filter(s=>{if(s.type==='circle'){const dx=x-s.x,dy=y-s.y;return dx*dx+dy*dy<=s.radius*s.radius;}if(s.type==='rect') return x>=s.x&&x<=s.x+s.w&&y>=s.y&&y<=s.y+s.h;return false;}); }
+
+  return { Body,StaticCircle,StaticLine,StaticRect, addBody,addCircle,addLine,addRect, removeBody,removeStatic,clear, setGravity,setBounds,update, raycastBodies,raycastStatics, getBodies:()=>_bodies, getStatics:()=>_statics };
+})();
+
+
+// ── engine/particles.js (365 lines) ──
+// ═══════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Particle System (Object-Pooled)
+// ═══════════════════════════════════════════════════════════════
+
+class Particle {
+  constructor() { this.reset(); }
+
+  reset() {
+    this.alive = false;
+    this.x = 0; this.y = 0;
+    this.vx = 0; this.vy = 0;
+    this.ax = 0; this.ay = 0;        // acceleration (gravity etc)
+    this.rotation = 0;
+    this.rotationSpeed = 0;
+    this.scale = 1;
+    this.scaleEnd = 0;
+    this.alpha = 1;
+    this.alphaEnd = 0;
+    this.life = 0;
+    this.maxLife = 1;
+    this.color = '#ffffff';
+    this.colorEnd = null;
+    this.size = 4;
+    this.type = 'circle';            // circle | square | sprite | line
+    this.sprite = null;              // emoji string for sprite type
+    this.friction = 1;               // velocity multiplier per frame (0.98 = slight drag)
+    this.turbulence = 0;
+  }
+}
+
+class ParticleSystem {
+  constructor(maxParticles = 500) {
+    this.pool = [];
+    this.active = [];
+    this.maxParticles = maxParticles;
+
+    // Pre-allocate pool
+    for (let i = 0; i < maxParticles; i++) {
+      this.pool.push(new Particle());
+    }
+
+    // Global forces
+    this.gravity = 0;                 // pixels/s²
+    this.wind = 0;                    // pixels/s
+  }
+
+  /** Get a particle from the pool */
+  _acquire() {
+    if (this.pool.length > 0) {
+      const p = this.pool.pop();
+      p.reset();
+      p.alive = true;
+      this.active.push(p);
+      return p;
+    }
+    // Pool empty — steal oldest active
+    if (this.active.length > 0) {
+      const p = this.active.shift();
+      p.reset();
+      p.alive = true;
+      this.active.push(p);
+      return p;
+    }
+    return null;
+  }
+
+  /** Return particle to pool */
+  _release(p) {
+    p.alive = false;
+    this.pool.push(p);
+  }
+
+  /** Emit a burst of particles */
+  emit(count, config) {
+    for (let i = 0; i < count; i++) {
+      const p = this._acquire();
+      if (!p) return;
+
+      // Position
+      if (config.shape === 'circle') {
+        const angle = Math.random() * Math.PI * 2;
+        const r = Math.random() * (config.radius || 10);
+        p.x = (config.x || 0) + Math.cos(angle) * r;
+        p.y = (config.y || 0) + Math.sin(angle) * r;
+      } else if (config.shape === 'line') {
+        const t = Math.random();
+        p.x = (config.x || 0) + t * (config.x2 || 0 - (config.x || 0));
+        p.y = (config.y || 0) + t * (config.y2 || 0 - (config.y || 0));
+      } else if (config.shape === 'rect') {
+        p.x = (config.x || 0) + Math.random() * (config.w || 20);
+        p.y = (config.y || 0) + Math.random() * (config.h || 20);
+      } else {
+        p.x = config.x || 0;
+        p.y = config.y || 0;
+      }
+
+      // Velocity
+      if (config.angle !== undefined) {
+        const angle = config.angle + (Math.random() - 0.5) * (config.spread || Math.PI * 2);
+        const speed = _range(config.speed || 100, config.speedVar || 50);
+        p.vx = Math.cos(angle) * speed;
+        p.vy = Math.sin(angle) * speed;
+      } else {
+        p.vx = _range(config.vx || 0, config.vxVar || 0);
+        p.vy = _range(config.vy || 0, config.vyVar || 0);
+      }
+
+      // Acceleration
+      p.ax = config.ax || 0;
+      p.ay = config.ay || 0;
+
+      // Life
+      p.maxLife = _range(config.life || 1, config.lifeVar || 0.2);
+      p.life = 0;
+
+      // Visual
+      p.size = _range(config.size || 4, config.sizeVar || 1);
+      p.scale = config.scale ?? 1;
+      p.scaleEnd = config.scaleEnd ?? 0.2;
+      p.alpha = config.alpha ?? 1;
+      p.alphaEnd = config.alphaEnd ?? 0;
+      p.rotation = Math.random() * Math.PI * 2;
+      p.rotationSpeed = _range(config.rotationSpeed || 0, config.rotationSpeedVar || 2);
+      p.friction = config.friction ?? 0.98;
+      p.turbulence = config.turbulence || 0;
+
+      // Color
+      if (Array.isArray(config.colors) && config.colors.length > 0) {
+        p.color = config.colors[Math.floor(Math.random() * config.colors.length)];
+      } else {
+        p.color = config.color || '#ffffff';
+      }
+      p.colorEnd = config.colorEnd || null;
+
+      // Type
+      p.type = config.type || 'circle';
+      if (Array.isArray(config.sprites) && config.sprites.length > 0) {
+        p.type = 'sprite';
+        p.sprite = config.sprites[Math.floor(Math.random() * config.sprites.length)];
+      } else if (config.sprite) {
+        p.type = 'sprite';
+        p.sprite = config.sprite;
+      }
+    }
+  }
+
+  /** Update all active particles */
+  update(dt) {
+    for (let i = this.active.length - 1; i >= 0; i--) {
+      const p = this.active[i];
+      p.life += dt;
+
+      if (p.life >= p.maxLife) {
+        this.active.splice(i, 1);
+        this._release(p);
+        continue;
+      }
+
+      // Forces
+      p.vy += (this.gravity + p.ay) * dt;
+      p.vx += (this.wind + p.ax) * dt;
+
+      // Turbulence
+      if (p.turbulence > 0) {
+        p.vx += (Math.random() - 0.5) * p.turbulence * dt * 60;
+        p.vy += (Math.random() - 0.5) * p.turbulence * dt * 60;
+      }
+
+      // Friction
+      p.vx *= p.friction;
+      p.vy *= p.friction;
+
+      // Integrate
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.rotation += p.rotationSpeed * dt;
+    }
+  }
+
+  /** Render all active particles */
+  render(ctx, renderer) {
+    for (const p of this.active) {
+      const t = p.life / p.maxLife;     // 0→1 normalized lifetime
+
+      const alpha = p.alpha + (p.alphaEnd - p.alpha) * t;
+      if (alpha <= 0.01) continue;
+
+      const scale = p.scale + (p.scaleEnd - p.scale) * t;
+      const size = p.size * scale;
+
+      if (p.type === 'sprite' && p.sprite && renderer) {
+        renderer.drawSprite(ctx, p.sprite, p.x, p.y, size * 2, {
+          alpha, scale: 1, rotation: p.rotation,
+        });
+      } else if (p.type === 'square') {
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+        ctx.fillStyle = p.colorEnd ? lerpColor(p.color, p.colorEnd, t) : p.color;
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+        ctx.restore();
+      } else if (p.type === 'line') {
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = Math.max(1, size * 0.3);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03); // velocity trail
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        // Circle (default)
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.colorEnd ? lerpColor(p.color, p.colorEnd, t) : p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(0.5, size / 2), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  /** Clear all particles */
+  clear() {
+    while (this.active.length > 0) {
+      this._release(this.active.pop());
+    }
+  }
+
+  get count() { return this.active.length; }
+}
+
+
+// ── Particle Presets ──
+
+const ParticlePresets = {
+  /** Big win burst from a point */
+  burst(x, y, opts = {}) {
+    return {
+      x, y, shape: 'point',
+      angle: -Math.PI / 2,
+      spread: Math.PI * 2,
+      speed: opts.speed || 200,
+      speedVar: opts.speedVar || 100,
+      life: opts.life || 0.8,
+      lifeVar: 0.3,
+      size: opts.size || 6,
+      sizeVar: 3,
+      scaleEnd: 0,
+      alphaEnd: 0,
+      friction: 0.96,
+      sprites: opts.sprites || null,
+      colors: opts.colors || ['#ffd700', '#ff6b6b', '#4ecdc4', '#a78bfa', '#ffffff'],
+      type: opts.sprites ? 'sprite' : 'circle',
+    };
+  },
+
+  /** Confetti rain from top */
+  confetti(w, h, opts = {}) {
+    return {
+      x: 0, y: -20, shape: 'rect', w, h: 1,
+      vx: 0, vxVar: 40,
+      vy: 120, vyVar: 60,
+      life: opts.life || 2.5,
+      lifeVar: 0.5,
+      size: opts.size || 8,
+      sizeVar: 3,
+      scaleEnd: 0.6,
+      alphaEnd: 0,
+      friction: 0.995,
+      rotationSpeed: 3, rotationSpeedVar: 4,
+      turbulence: 30,
+      type: 'square',
+      colors: opts.colors || ['#ff6b6b', '#ffd700', '#4ecdc4', '#a78bfa', '#ff8c42', '#7bed9f'],
+    };
+  },
+
+  /** Sparkle/shimmer at a point */
+  sparkle(x, y, opts = {}) {
+    return {
+      x, y, shape: 'circle', radius: opts.radius || 15,
+      speed: 15, speedVar: 10,
+      spread: Math.PI * 2,
+      life: 0.5, lifeVar: 0.2,
+      size: 3, sizeVar: 2,
+      alpha: 0.9, alphaEnd: 0,
+      scale: 1, scaleEnd: 0,
+      color: opts.color || '#ffd700',
+      type: 'circle',
+    };
+  },
+
+  /** Fire effect rising from point */
+  fire(x, y, opts = {}) {
+    return {
+      x, y, shape: 'circle', radius: 8,
+      angle: -Math.PI / 2,
+      spread: 0.5,
+      speed: 80, speedVar: 40,
+      life: 0.6, lifeVar: 0.3,
+      size: 8, sizeVar: 4,
+      scaleEnd: 0,
+      alphaEnd: 0,
+      friction: 0.97,
+      turbulence: 20,
+      color: '#ff4500',
+      colorEnd: '#ffd700',
+    };
+  },
+
+  /** Trail behind a moving object */
+  trail(x, y, opts = {}) {
+    return {
+      x, y, shape: 'point',
+      speed: 5, speedVar: 3,
+      spread: Math.PI * 2,
+      life: 0.3, lifeVar: 0.1,
+      size: opts.size || 3,
+      sizeVar: 1,
+      alpha: 0.7, alphaEnd: 0,
+      scaleEnd: 0,
+      color: opts.color || '#ffd700',
+    };
+  },
+
+  /** Impact ring expanding outward */
+  ring(x, y, opts = {}) {
+    return {
+      x, y, shape: 'circle', radius: 2,
+      speed: opts.speed || 150, speedVar: 30,
+      spread: Math.PI * 2,
+      life: 0.4, lifeVar: 0.1,
+      size: 3, sizeVar: 1,
+      alphaEnd: 0, scaleEnd: 0.3,
+      friction: 0.94,
+      color: opts.color || '#ffffff',
+    };
+  },
+
+  /** Coins/gems flying up and falling with gravity */
+  coins(x, y, opts = {}) {
+    return {
+      x, y, shape: 'point',
+      angle: -Math.PI / 2,
+      spread: 1.2,
+      speed: 250, speedVar: 100,
+      life: 1.5, lifeVar: 0.3,
+      size: 12, sizeVar: 4,
+      alphaEnd: 0,
+      scaleEnd: 0.5,
+      friction: 0.99,
+      sprites: opts.sprites || ['🪙', '💰', '💎'],
+      type: 'sprite',
+    };
+  },
+};
+
+// Utility: random value with variance
+function _range(base, variance) {
+  return base + (Math.random() - 0.5) * 2 * variance;
+}
+
+
+// ── engine/audio.js (308 lines) ──
+// ═══════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Audio Engine (Procedural Synthesis + SFX)
+// ═══════════════════════════════════════════════════════════════
+
+class AudioEngine {
+  constructor() {
+    this.ctx = null;
+    this.master = null;
+    this.initialized = false;
+
+    // Volume categories (0-1)
+    this.volumes = { master: 0.7, sfx: 0.8, music: 0.3, ui: 0.5, ambient: 0.2 };
+
+    // Category gain nodes
+    this.gains = {};
+
+    // Active audio sources for cleanup
+    this._activeSources = new Set();
+
+    // Musical key for themed sounds
+    this.key = 'C';
+    this.scale = 'minor';
+    this._scales = {
+      major:   [0, 2, 4, 5, 7, 9, 11],
+      minor:   [0, 2, 3, 5, 7, 8, 10],
+      penta:   [0, 2, 4, 7, 9],
+      blues:   [0, 3, 5, 6, 7, 10],
+      arab:    [0, 1, 4, 5, 7, 8, 11],    // Egyptian/Middle Eastern
+      japan:   [0, 1, 5, 7, 8],            // Japanese pentatonic
+    };
+    this._noteFreqs = {
+      'C': 261.63, 'C#': 277.18, 'D': 293.66, 'D#': 311.13,
+      'E': 329.63, 'F': 349.23, 'F#': 369.99, 'G': 392.00,
+      'G#': 415.30, 'A': 440.00, 'A#': 466.16, 'B': 493.88,
+    };
+  }
+
+  /** Initialize audio context (must be called from user gesture) */
+  init() {
+    if (this.initialized) return;
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.volumes.master;
+      this.master.connect(this.ctx.destination);
+
+      // Create category buses
+      for (const cat of ['sfx', 'music', 'ui', 'ambient']) {
+        const g = this.ctx.createGain();
+        g.gain.value = this.volumes[cat];
+        g.connect(this.master);
+        this.gains[cat] = g;
+      }
+
+      this.initialized = true;
+    } catch (e) {
+      console.warn('AudioEngine: Web Audio not available', e);
+    }
+  }
+
+  /** Resume context if suspended */
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  /** Set volume for a category */
+  setVolume(category, value) {
+    this.volumes[category] = value;
+    if (category === 'master' && this.master) {
+      this.master.gain.value = value;
+    } else if (this.gains[category]) {
+      this.gains[category].gain.value = value;
+    }
+  }
+
+  // ── Synthesis Primitives ──
+
+  /** Play a tone with ADSR envelope */
+  tone(freq, opts = {}) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const {
+      type = 'sine',        // sine, square, triangle, sawtooth
+      attack = 0.01,
+      decay = 0.1,
+      sustain = 0.3,
+      release = 0.2,
+      duration = 0.3,
+      volume = 0.5,
+      pan = 0,              // -1 to 1
+      detune = 0,
+      category = 'sfx',
+      filter = null,        // { type, freq, Q }
+    } = opts;
+
+    const osc = this.ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.value = freq;
+    if (detune) osc.detune.value = detune;
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(0, now);
+    env.gain.linearRampToValueAtTime(volume, now + attack);
+    env.gain.linearRampToValueAtTime(volume * sustain, now + attack + decay);
+    env.gain.setValueAtTime(volume * sustain, now + duration - release);
+    env.gain.linearRampToValueAtTime(0, now + duration);
+
+    let chain = osc;
+
+    // Optional filter
+    if (filter) {
+      const filt = this.ctx.createBiquadFilter();
+      filt.type = filter.type || 'lowpass';
+      filt.frequency.value = filter.freq || 2000;
+      filt.Q.value = filter.Q || 1;
+      chain.connect(filt);
+      chain = filt;
+    }
+
+    chain.connect(env);
+
+    // Stereo panning
+    if (pan !== 0) {
+      const panner = this.ctx.createStereoPanner();
+      panner.pan.value = Math.max(-1, Math.min(1, pan));
+      env.connect(panner);
+      panner.connect(this.gains[category] || this.master);
+    } else {
+      env.connect(this.gains[category] || this.master);
+    }
+
+    osc.start(now);
+    osc.stop(now + duration + 0.01);
+    this._activeSources.add(osc);
+    osc.onended = () => this._activeSources.delete(osc);
+
+    return osc;
+  }
+
+  /** Play a noise burst (snare, scratch, impact) */
+  noise(opts = {}) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const {
+      duration = 0.1,
+      volume = 0.3,
+      attack = 0.001,
+      decay = 0.05,
+      filterFreq = 3000,
+      filterType = 'bandpass',
+      category = 'sfx',
+    } = opts;
+
+    // White noise buffer
+    const bufSize = this.ctx.sampleRate * duration;
+    const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+
+    const source = this.ctx.createBufferSource();
+    source.buffer = buf;
+
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = filterType;
+    filt.frequency.value = filterFreq;
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(0, now);
+    env.gain.linearRampToValueAtTime(volume, now + attack);
+    env.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+    source.connect(filt);
+    filt.connect(env);
+    env.connect(this.gains[category] || this.master);
+
+    source.start(now);
+    source.stop(now + duration + 0.01);
+    this._activeSources.add(source);
+    source.onended = () => this._activeSources.delete(source);
+  }
+
+  /** Get a note frequency from the current scale */
+  noteFreq(degree, octaveOffset = 0) {
+    const baseFreq = this._noteFreqs[this.key] || 261.63;
+    const scaleNotes = this._scales[this.scale] || this._scales.minor;
+    const idx = ((degree % scaleNotes.length) + scaleNotes.length) % scaleNotes.length;
+    const octave = Math.floor(degree / scaleNotes.length) + octaveOffset;
+    const semitones = scaleNotes[idx] + octave * 12;
+    return baseFreq * Math.pow(2, semitones / 12);
+  }
+
+  // ── High-Level Sound Effects ──
+
+  /** UI click */
+  click() {
+    this.tone(800, { type: 'sine', duration: 0.06, volume: 0.2, attack: 0.001, decay: 0.05, sustain: 0, release: 0.01, category: 'ui' });
+  }
+
+  /** Button press */
+  press() {
+    this.tone(600, { type: 'triangle', duration: 0.08, volume: 0.15, category: 'ui' });
+    this.tone(900, { type: 'sine', duration: 0.06, volume: 0.1, category: 'ui' });
+  }
+
+  /** Win sound — ascending arpeggio */
+  win(intensity = 1) {
+    const notes = [0, 2, 4, 7];
+    notes.forEach((n, i) => {
+      setTimeout(() => {
+        this.tone(this.noteFreq(n, 1), {
+          type: 'triangle', duration: 0.2 + intensity * 0.2,
+          volume: 0.25 * intensity, attack: 0.01, category: 'sfx',
+        });
+      }, i * 80);
+    });
+    // Shimmer
+    setTimeout(() => {
+      this.tone(this.noteFreq(4, 2), { type: 'sine', duration: 0.4, volume: 0.15, category: 'sfx' });
+    }, notes.length * 80);
+  }
+
+  /** Big win — chord + shimmer */
+  bigWin() {
+    [0, 4, 7].forEach((n, i) => {
+      this.tone(this.noteFreq(n, 1), { type: 'triangle', duration: 0.6, volume: 0.3, attack: 0.01, detune: i * 3, category: 'sfx' });
+    });
+    this.tone(this.noteFreq(0, 2), { type: 'sine', duration: 0.8, volume: 0.2, attack: 0.05, category: 'sfx' });
+    this.noise({ duration: 0.2, volume: 0.15, filterFreq: 8000, category: 'sfx' });
+  }
+
+  /** Lose / bust */
+  lose() {
+    this.tone(200, { type: 'sawtooth', duration: 0.3, volume: 0.25, attack: 0.01, filter: { type: 'lowpass', freq: 600 }, category: 'sfx' });
+    this.tone(150, { type: 'sine', duration: 0.4, volume: 0.2, attack: 0.05, category: 'sfx' });
+  }
+
+  /** Impact / collision */
+  impact(intensity = 0.5) {
+    this.noise({ duration: 0.08 + intensity * 0.05, volume: 0.2 + intensity * 0.2, filterFreq: 200 + intensity * 500, filterType: 'lowpass', category: 'sfx' });
+    this.tone(80, { type: 'sine', duration: 0.15, volume: 0.2 * intensity, attack: 0.001, category: 'sfx' });
+  }
+
+  /** Tick (wheel, plinko bounce) — musical, pitched to row/position */
+  tick(pitch = 0, pan = 0) {
+    const freq = this.noteFreq(pitch, 1);
+    this.tone(freq, { type: 'triangle', duration: 0.08, volume: 0.2, attack: 0.001, decay: 0.06, sustain: 0, pan, category: 'sfx' });
+  }
+
+  /** Rising tension — ascending pitch over duration */
+  tension(durationMs, startFreq = 200, endFreq = 800) {
+    if (!this.ctx) return null;
+    const now = this.ctx.currentTime;
+    const dur = durationMs / 1000;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(startFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(endFreq, now + dur);
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(0, now);
+    env.gain.linearRampToValueAtTime(0.15, now + 0.1);
+    env.gain.setValueAtTime(0.15, now + dur - 0.1);
+    env.gain.linearRampToValueAtTime(0, now + dur);
+
+    osc.connect(env);
+    env.connect(this.gains.ambient || this.master);
+    osc.start(now);
+    osc.stop(now + dur);
+    this._activeSources.add(osc);
+    osc.onended = () => this._activeSources.delete(osc);
+    return osc;
+  }
+
+  /** Coin collect sound */
+  coin(pitch = 0) {
+    const freq = 1200 + pitch * 100;
+    this.tone(freq, { type: 'square', duration: 0.08, volume: 0.15, attack: 0.001, filter: { type: 'highpass', freq: 800 }, category: 'sfx' });
+    this.tone(freq * 1.5, { type: 'sine', duration: 0.12, volume: 0.1, attack: 0.01, category: 'sfx' });
+  }
+
+  /** Card flip sound */
+  cardFlip() {
+    this.noise({ duration: 0.04, volume: 0.2, filterFreq: 5000, filterType: 'highpass', category: 'sfx' });
+    this.tone(1200, { type: 'sine', duration: 0.04, volume: 0.08, category: 'sfx' });
+  }
+
+  /** Scratch sound (for scratch cards) */
+  scratch() {
+    this.noise({ duration: 0.06, volume: 0.15, filterFreq: 4000, filterType: 'bandpass', category: 'sfx' });
+  }
+
+  /** Stop all active sounds */
+  stopAll() {
+    for (const src of this._activeSources) {
+      try { src.stop(); } catch (e) {}
+    }
+    this._activeSources.clear();
+  }
+
+  destroy() {
+    this.stopAll();
+    if (this.ctx) {
+      this.ctx.close().catch(() => {});
+    }
+  }
+}
+
+
+// ── engine/camera.js (159 lines) ──
+// ═══════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Camera & Screen Effects
+// ═══════════════════════════════════════════════════════════════
+
+class Camera {
+  constructor(renderer) {
+    this.renderer = renderer;
+    this.x = 0;
+    this.y = 0;
+    this.zoom = 1;
+    this.targetZoom = 1;
+    this.zoomSpeed = 3;
+
+    // Shake
+    this._shakeAmp = 0;
+    this._shakeFreq = 30;
+    this._shakeDecay = 0;
+    this._shakeT = 0;
+    this._shakeDirX = 0;
+    this._shakeDirY = 0;
+
+    // Follow
+    this._followTarget = null;
+    this._followLag = 0.1;
+
+    // Flash
+    this._flashColor = '#fff';
+    this._flashAlpha = 0;
+    this._flashDecayRate = 3;
+
+    // Vignette
+    this.vignette = 0;
+    this.vignetteTarget = 0;
+
+    // Chromatic aberration
+    this.aberration = 0;
+    this._aberDecay = 5;
+
+    // Slow motion pulse
+    this.slowMoTarget = 1;
+
+    // Output
+    this.offsetX = 0;
+    this.offsetY = 0;
+  }
+
+  shake(amp = 8, freq = 30, dur = 0.4, dirX = 0, dirY = 0) {
+    this._shakeAmp = amp;
+    this._shakeFreq = freq;
+    this._shakeDecay = amp / Math.max(dur, 0.05);
+    this._shakeT = 0;
+    this._shakeDirX = dirX;
+    this._shakeDirY = dirY;
+  }
+
+  impact(strength = 1) {
+    this.shake(6 * strength, 35, 0.3 + strength * 0.15);
+    this.flash('#ffffff', 0.15 * strength);
+    this.aberration = 3 * strength;
+  }
+
+  zoomTo(target, speed = 3) { this.targetZoom = target; this.zoomSpeed = speed; }
+
+  zoomPulse(amount = 0.1, dur = 0.3) {
+    const orig = this.targetZoom;
+    this.targetZoom = orig + amount;
+    this.zoomSpeed = 8;
+    setTimeout(() => { this.targetZoom = orig; this.zoomSpeed = 4; }, dur * 1000);
+  }
+
+  follow(target, lag = 0.1) { this._followTarget = target; this._followLag = lag; }
+  stopFollow() { this._followTarget = null; }
+
+  flash(color = '#ffffff', alpha = 0.3) {
+    this._flashColor = color;
+    this._flashAlpha = Math.max(this._flashAlpha, alpha);
+  }
+
+  setVignette(v) { this.vignetteTarget = v; }
+
+  update(dt) {
+    // Shake
+    if (this._shakeAmp > 0.1) {
+      this._shakeT += dt;
+      const decay = Math.max(0, this._shakeAmp - this._shakeDecay * this._shakeT);
+      const p = this._shakeT * this._shakeFreq * Math.PI * 2;
+      this.offsetX = Math.sin(p) * decay + this._shakeDirX * decay;
+      this.offsetY = Math.cos(p * 1.3) * decay + this._shakeDirY * decay;
+      if (decay <= 0.1) { this._shakeAmp = 0; this.offsetX = 0; this.offsetY = 0; }
+    }
+
+    // Follow
+    if (this._followTarget) {
+      const cx = this.renderer.width / 2;
+      const cy = this.renderer.height / 2;
+      const lerp = 1 - Math.pow(this._followLag, dt * 60);
+      this.x += (this._followTarget.x - cx - this.x) * lerp;
+      this.y += (this._followTarget.y - cy - this.y) * lerp;
+    }
+
+    // Zoom
+    if (Math.abs(this.zoom - this.targetZoom) > 0.0005) {
+      this.zoom += (this.targetZoom - this.zoom) * Math.min(1, this.zoomSpeed * dt);
+    }
+
+    // Flash
+    if (this._flashAlpha > 0) {
+      this._flashAlpha = Math.max(0, this._flashAlpha - this._flashDecayRate * dt);
+    }
+
+    // Vignette
+    this.vignette += (this.vignetteTarget - this.vignette) * Math.min(1, 2 * dt);
+
+    // Aberration
+    if (this.aberration > 0) {
+      this.aberration = Math.max(0, this.aberration - this._aberDecay * dt);
+    }
+  }
+
+  /** Apply transform to ctx before drawing game content */
+  applyTransform(ctx) {
+    const cx = this.renderer.width / 2;
+    const cy = this.renderer.height / 2;
+    ctx.save();
+    ctx.translate(cx + this.offsetX, cy + this.offsetY);
+    ctx.scale(this.zoom, this.zoom);
+    ctx.translate(-cx - this.x, -cy - this.y);
+  }
+
+  restoreTransform(ctx) { ctx.restore(); }
+
+  /** Render screen-space post effects (flash, vignette, aberration) */
+  renderEffects(ctx) {
+    const w = this.renderer.width;
+    const h = this.renderer.height;
+
+    if (this._flashAlpha > 0.005) {
+      ctx.save();
+      ctx.globalAlpha = this._flashAlpha;
+      ctx.fillStyle = this._flashColor;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
+
+    if (this.vignette > 0.01) {
+      this.renderer.drawVignette(ctx, this.vignette);
+    }
+
+    if (this.aberration > 0.5) {
+      const a = this.aberration;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.08;
+      ctx.drawImage(ctx.canvas, a, 0);
+      ctx.drawImage(ctx.canvas, -a, 0);
+      ctx.restore();
+    }
+  }
+}
+
+
+// ── engine/input.js (118 lines) ──
+// ═══════════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Input System
+// ═══════════════════════════════════════════════════════════════════
+ARCADE.Input = (() => {
+  let _container = null, _enabled = true;
+  const pointer = { x:0, y:0, down:false, pressed:false, released:false, dragging:false };
+  let _downX=0, _downY=0, _downTime=0, _longPressTimer=null;
+  const DRAG_THRESHOLD=8, LONG_PRESS_MS=500;
+  let _swipeDir=null, _swipeVel=0;
+  let _tapCb=null, _longPressCb=null, _swipeCb=null, _dragCb=null, _dragEndCb=null, _hoverCb=null;
+  const _regions = [];
+
+  function init(containerId) {
+    _container = document.getElementById(containerId);
+    if (!_container) return;
+    _container.style.touchAction = 'none';
+    _container.style.userSelect = 'none';
+    _container.style.webkitUserSelect = 'none';
+    _container.addEventListener('pointerdown', _onDown, {passive:false});
+    _container.addEventListener('pointermove', _onMove, {passive:false});
+    _container.addEventListener('pointerup', _onUp, {passive:false});
+    _container.addEventListener('pointercancel', _onUp, {passive:false});
+    _container.addEventListener('pointerleave', _onLeave, {passive:false});
+    _container.addEventListener('contextmenu', e=>e.preventDefault());
+    let lastTap=0;
+    _container.addEventListener('touchend', e=>{ const n=Date.now(); if(n-lastTap<300) e.preventDefault(); lastTap=n; }, {passive:false});
+  }
+
+  function _pos(e) { const r=_container.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+
+  function _onDown(e) {
+    if(!_enabled) return; e.preventDefault();
+    const p=_pos(e); pointer.x=p.x; pointer.y=p.y;
+    pointer.down=true; pointer.pressed=true; pointer.dragging=false;
+    _downX=p.x; _downY=p.y; _downTime=performance.now(); _swipeDir=null;
+    if(_longPressTimer) clearTimeout(_longPressTimer);
+    _longPressTimer = setTimeout(()=>{ if(pointer.down&&!pointer.dragging){ if(_longPressCb) _longPressCb(p.x,p.y); haptic('heavy'); } }, LONG_PRESS_MS);
+    _checkRegions(p.x,p.y,'down');
+    ARCADE.Audio.unlock();
+  }
+
+  function _onMove(e) {
+    if(!_enabled) return; e.preventDefault();
+    const p=_pos(e); pointer.x=p.x; pointer.y=p.y;
+    if(pointer.down) {
+      const dx=p.x-_downX, dy=p.y-_downY;
+      if(Math.sqrt(dx*dx+dy*dy)>DRAG_THRESHOLD && !pointer.dragging) {
+        pointer.dragging=true; if(_longPressTimer){clearTimeout(_longPressTimer);_longPressTimer=null;}
+      }
+      if(pointer.dragging && _dragCb) _dragCb(p.x,p.y,dx,dy);
+    }
+    if(!pointer.down && _hoverCb) _hoverCb(p.x,p.y);
+    _checkRegions(p.x,p.y,pointer.down?'drag':'hover');
+  }
+
+  function _onUp(e) {
+    if(!_enabled) return; e.preventDefault();
+    const p=_pos(e); pointer.x=p.x; pointer.y=p.y;
+    pointer.down=false; pointer.released=true;
+    if(_longPressTimer){clearTimeout(_longPressTimer);_longPressTimer=null;}
+    if(!pointer.dragging) {
+      if(_tapCb) _tapCb(p.x,p.y);
+      _checkRegions(p.x,p.y,'tap');
+    } else {
+      const dx=p.x-_downX,dy=p.y-_downY,dist=Math.sqrt(dx*dx+dy*dy);
+      const elapsed=(performance.now()-_downTime)/1000;
+      _swipeVel=dist/Math.max(elapsed,0.01);
+      if(dist>30&&_swipeVel>100) {
+        _swipeDir = Math.abs(dx)>Math.abs(dy) ? (dx>0?'right':'left') : (dy>0?'down':'up');
+        if(_swipeCb) _swipeCb(_swipeDir,_swipeVel);
+      }
+      if(_dragEndCb) _dragEndCb(p.x,p.y);
+    }
+    pointer.dragging=false;
+    _checkRegions(p.x,p.y,'up');
+  }
+
+  function _onLeave(e) { if(pointer.down) _onUp(e); _checkRegions(-1,-1,'leave'); }
+
+  function addRegion(id,x,y,w,h,cbs) { _regions.push({id,x,y,w,h,...cbs,hovered:false}); return id; }
+  function updateRegion(id,props) { const r=_regions.find(r=>r.id===id); if(r) Object.assign(r,props); }
+  function removeRegion(id) { const i=_regions.findIndex(r=>r.id===id); if(i>=0) _regions.splice(i,1); }
+  function clearRegions() { _regions.length=0; }
+
+  function _checkRegions(px,py,event) {
+    for(const r of _regions) {
+      const inside=px>=r.x&&px<r.x+r.w&&py>=r.y&&py<r.y+r.h;
+      if(event==='hover'||event==='drag') {
+        if(inside&&!r.hovered){r.hovered=true;if(r.enter) r.enter(r.id);}
+        if(!inside&&r.hovered){r.hovered=false;if(r.leave) r.leave(r.id);}
+      }
+      if(event==='leave'&&r.hovered){r.hovered=false;if(r.leave) r.leave(r.id);}
+      if(!inside) continue;
+      if(event==='tap'&&r.tap) r.tap(r.id,px,py);
+      if(event==='down'&&r.down) r.down(r.id,px,py);
+      if(event==='up'&&r.up) r.up(r.id,px,py);
+    }
+  }
+
+  function onTap(fn){_tapCb=fn;} function onLongPress(fn){_longPressCb=fn;}
+  function onSwipe(fn){_swipeCb=fn;} function onDrag(fn){_dragCb=fn;}
+  function onDragEnd(fn){_dragEndCb=fn;} function onHover(fn){_hoverCb=fn;}
+
+  function haptic(style='light') {
+    if(!navigator.vibrate) return;
+    const patterns={light:[10],medium:[15,30,15],heavy:[100],success:[10,20,10,20,30],error:[50,30,50],double:[10,40,10]};
+    navigator.vibrate(patterns[style]||[10]);
+  }
+
+  function endFrame() { pointer.pressed=false; pointer.released=false; _swipeDir=null; }
+
+  return {
+    init, pointer, enable(){_enabled=true;}, disable(){_enabled=false;}, endFrame,
+    onTap, onLongPress, onSwipe, onDrag, onDragEnd, onHover,
+    addRegion, updateRegion, removeRegion, clearRegions,
+    haptic, getSwipe:()=>_swipeDir, getSwipeVelocity:()=>_swipeVel,
+  };
+})();
+
+
+// ── effects/effects.js (118 lines) ──
+// ═══════════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Visual Effects (Numbers, Trails, Glow)
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Floating Numbers ──
+ARCADE.Numbers = (() => {
+  const _nums = [], MAX = 30;
+  function spawn(x,y,text,opts={}) {
+    if(_nums.length>=MAX) _nums.shift();
+    _nums.push({ x,y, text:String(text), vx:opts.vx||(Math.random()-.5)*20, vy:opts.vy||-80,
+      life:0, maxLife:opts.duration||1.2, size:opts.size||18, sizeEnd:opts.sizeEnd||24,
+      color:opts.color||'#22c55e', glow:opts.glow||null,
+      font:opts.font||'bold {size}px Inter, sans-serif', ease:opts.ease||ARCADE.Ease.outCubic });
+  }
+  function update(dt) {
+    for(let i=_nums.length-1;i>=0;i--){ const n=_nums[i]; n.life+=dt; if(n.life>=n.maxLife){_nums.splice(i,1);continue;} n.x+=n.vx*dt; n.y+=n.vy*dt; n.vy*=0.97; }
+  }
+  function render(ctx) {
+    for(const n of _nums) {
+      const t=n.life/n.maxLife, alpha=t<.2?t/.2:1-ARCADE.Ease.inQuad((t-.2)/.8);
+      const size=n.size+(n.sizeEnd-n.size)*n.ease(Math.min(t*2,1));
+      if(alpha<=0.01) continue;
+      ctx.save(); ctx.globalAlpha=alpha;
+      ctx.font=n.font.replace('{size}',size.toFixed(0));
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      if(n.glow){ctx.shadowColor=n.glow;ctx.shadowBlur=12;}
+      ctx.fillStyle=n.color; ctx.fillText(n.text,n.x,n.y); ctx.restore();
+    }
+  }
+  return { spawn, update, render, clear(){_nums.length=0;} };
+})();
+
+// ── Odometer ──
+ARCADE.Odometer = class {
+  constructor(opts={}) {
+    this.value=opts.value||0; this._display=opts.value||0; this._target=opts.value||0;
+    this._decimals=opts.decimals??2; this._prefix=opts.prefix||''; this._suffix=opts.suffix||'';
+    this._spring=new ARCADE.Spring({value:0,target:0,stiffness:150,damping:14}); this._rolling=false;
+  }
+  set(val,animate=true) {
+    this._target=val; this.value=val;
+    if(animate){this._spring.value=this._display;this._spring.target=val;this._spring.velocity=0;this._spring.settled=false;this._rolling=true;}
+    else{this._display=val;this._spring.snap(val);this._rolling=false;}
+  }
+  update(dt) {
+    if(!this._rolling) return;
+    this._display=this._spring.update(dt);
+    if(this._spring.settled){this._display=this._target;this._rolling=false;}
+  }
+  getText() { return this._prefix+this._display.toFixed(this._decimals)+this._suffix; }
+  render(ctx,x,y,opts={}) {
+    ctx.save(); ctx.font=opts.font||'bold 24px Inter, sans-serif';
+    ctx.fillStyle=opts.color||'#e2e8f0'; ctx.textAlign=opts.align||'center'; ctx.textBaseline=opts.baseline||'middle';
+    if(this._rolling&&opts.glow){ctx.shadowColor=opts.glow;ctx.shadowBlur=8;}
+    ctx.fillText(this.getText(),x,y); ctx.restore();
+  }
+};
+
+// ── Trail ──
+ARCADE.Trail = class {
+  constructor(opts={}) {
+    this._pts=[]; this._max=opts.maxPoints||20; this._width=opts.width||4;
+    this._widthEnd=opts.widthEnd||0; this._color=opts.color||'#ffffff';
+    this._alpha=opts.alpha||0.6; this._fade=opts.fadeSpeed||3;
+  }
+  addPoint(x,y) { this._pts.push({x,y,alpha:this._alpha}); if(this._pts.length>this._max) this._pts.shift(); }
+  update(dt) { for(let i=this._pts.length-1;i>=0;i--){this._pts[i].alpha-=this._fade*dt;if(this._pts[i].alpha<=0) this._pts.splice(i,1);} }
+  render(ctx) {
+    if(this._pts.length<2) return;
+    ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
+    for(let i=1;i<this._pts.length;i++) {
+      const prev=this._pts[i-1],cur=this._pts[i],t=i/this._pts.length;
+      ctx.beginPath(); ctx.moveTo(prev.x,prev.y); ctx.lineTo(cur.x,cur.y);
+      ctx.strokeStyle=this._color; ctx.globalAlpha=cur.alpha*t;
+      ctx.lineWidth=this._width+(this._widthEnd-this._width)*(1-t); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  clear() { this._pts.length=0; }
+};
+
+// ── Glow Ring ──
+ARCADE.GlowRing = (() => {
+  const _rings = [];
+  function spawn(x,y,opts={}) { _rings.push({x,y,radius:opts.radius||5,maxRadius:opts.maxRadius||60,life:0,maxLife:opts.duration||0.4,color:opts.color||'#ffffff',width:opts.width||3}); }
+  function update(dt) { for(let i=_rings.length-1;i>=0;i--){_rings[i].life+=dt;if(_rings[i].life>=_rings[i].maxLife) _rings.splice(i,1);} }
+  function render(ctx) {
+    for(const r of _rings) {
+      const t=r.life/r.maxLife, radius=r.radius+(r.maxRadius-r.radius)*ARCADE.Ease.outCubic(t);
+      const alpha=1-ARCADE.Ease.inQuad(t); if(alpha<=0.01) continue;
+      ctx.save(); ctx.globalAlpha=alpha; ctx.strokeStyle=r.color;
+      ctx.lineWidth=r.width*(1-t*0.5); ctx.beginPath(); ctx.arc(r.x,r.y,radius,0,Math.PI*2); ctx.stroke(); ctx.restore();
+    }
+  }
+  return { spawn, update, render, clear(){_rings.length=0;} };
+})();
+
+// ── Edge Pulse ──
+ARCADE.EdgePulse = (() => {
+  let _active=false, _color='#22c55e', _alpha=0, _dur=0, _el=0;
+  function trigger(color='#22c55e',dur=0.5) { _color=color;_alpha=1;_dur=dur;_el=0;_active=true; }
+  function update(dt) { if(!_active) return; _el+=dt; _alpha=Math.max(0,1-_el/_dur); if(_alpha<=0) _active=false; }
+  function render(ctx,w,h) {
+    if(!_active||_alpha<=0.01) return;
+    ctx.save(); ctx.globalAlpha=_alpha*0.4;
+    const s=32;
+    const gT=ctx.createLinearGradient(0,0,0,s); gT.addColorStop(0,_color); gT.addColorStop(1,'transparent');
+    ctx.fillStyle=gT; ctx.fillRect(0,0,w,s);
+    const gB=ctx.createLinearGradient(0,h,0,h-s); gB.addColorStop(0,_color); gB.addColorStop(1,'transparent');
+    ctx.fillStyle=gB; ctx.fillRect(0,h-s,w,s);
+    const gL=ctx.createLinearGradient(0,0,s,0); gL.addColorStop(0,_color); gL.addColorStop(1,'transparent');
+    ctx.fillStyle=gL; ctx.fillRect(0,0,s,h);
+    const gR=ctx.createLinearGradient(w,0,w-s,0); gR.addColorStop(0,_color); gR.addColorStop(1,'transparent');
+    ctx.fillStyle=gR; ctx.fillRect(w-s,0,s,h);
+    ctx.restore();
+  }
+  return { trigger, update, render };
+})();
+
+
+// ── audio/presets.js (86 lines) ──
+// ═══════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Theme Audio Presets
+// ═══════════════════════════════════════════════════════════════
+
+const AudioPresets = {
+  egyptian: {
+    key: 'D', scale: 'arab',
+    tick: { type: 'triangle', filter: { type: 'bandpass', freq: 1200, Q: 3 } },
+    impact: { filterFreq: 300, filterType: 'lowpass' },
+    ambient: { type: 'sine', freq: 110, volume: 0.03, filter: { type: 'lowpass', freq: 400 } },
+    winChord: [0, 3, 7],     // D minor-ish (arab scale)
+    winType: 'triangle',
+  },
+  space: {
+    key: 'A', scale: 'penta',
+    tick: { type: 'sine', filter: { type: 'highpass', freq: 2000 } },
+    impact: { filterFreq: 200, filterType: 'lowpass' },
+    ambient: { type: 'sine', freq: 55, volume: 0.04, filter: { type: 'lowpass', freq: 200 } },
+    winChord: [0, 2, 4],
+    winType: 'sine',
+  },
+  ocean: {
+    key: 'E', scale: 'penta',
+    tick: { type: 'sine', filter: { type: 'bandpass', freq: 2500, Q: 2 } },
+    impact: { filterFreq: 250, filterType: 'lowpass' },
+    ambient: { type: 'sine', freq: 82, volume: 0.03, filter: { type: 'lowpass', freq: 300 } },
+    winChord: [0, 2, 4],
+    winType: 'sine',
+  },
+  fire: {
+    key: 'C', scale: 'blues',
+    tick: { type: 'sawtooth', filter: { type: 'lowpass', freq: 1500 } },
+    impact: { filterFreq: 150, filterType: 'lowpass' },
+    ambient: { type: 'sawtooth', freq: 55, volume: 0.02, filter: { type: 'lowpass', freq: 200 } },
+    winChord: [0, 3, 5],
+    winType: 'sawtooth',
+  },
+  jungle: {
+    key: 'G', scale: 'penta',
+    tick: { type: 'triangle', filter: { type: 'bandpass', freq: 800, Q: 2 } },
+    impact: { filterFreq: 200, filterType: 'lowpass' },
+    ambient: { type: 'triangle', freq: 98, volume: 0.025, filter: { type: 'lowpass', freq: 350 } },
+    winChord: [0, 2, 4],
+    winType: 'triangle',
+  },
+  cyberpunk: {
+    key: 'F#', scale: 'minor',
+    tick: { type: 'square', filter: { type: 'highpass', freq: 3000 } },
+    impact: { filterFreq: 400, filterType: 'bandpass' },
+    ambient: { type: 'square', freq: 45, volume: 0.02, filter: { type: 'lowpass', freq: 150 } },
+    winChord: [0, 3, 7],
+    winType: 'square',
+  },
+  luxury: {
+    key: 'C', scale: 'major',
+    tick: { type: 'sine', filter: { type: 'highpass', freq: 1500 } },
+    impact: { filterFreq: 300, filterType: 'lowpass' },
+    ambient: { type: 'sine', freq: 131, volume: 0.02, filter: { type: 'lowpass', freq: 500 } },
+    winChord: [0, 4, 7],
+    winType: 'triangle',
+  },
+  arctic: {
+    key: 'B', scale: 'major',
+    tick: { type: 'sine', filter: { type: 'highpass', freq: 4000 } },
+    impact: { filterFreq: 200, filterType: 'lowpass' },
+    ambient: { type: 'sine', freq: 123, volume: 0.02, filter: { type: 'lowpass', freq: 400 } },
+    winChord: [0, 4, 7],
+    winType: 'sine',
+  },
+  default: {
+    key: 'C', scale: 'minor',
+    tick: { type: 'triangle' },
+    impact: { filterFreq: 300, filterType: 'lowpass' },
+    ambient: { type: 'sine', freq: 110, volume: 0.02, filter: { type: 'lowpass', freq: 300 } },
+    winChord: [0, 3, 7],
+    winType: 'triangle',
+  },
+};
+
+/** Apply a theme preset to the audio engine */
+function applyAudioTheme(audio, themeName) {
+  const preset = AudioPresets[themeName] || AudioPresets.default;
+  audio.key = preset.key;
+  audio.scale = preset.scale;
+  return preset;
+}
+
+
+// ── arcade.js (198 lines) ──
+// ═══════════════════════════════════════════════════════════════
+// ARCADE ENGINE — Master Integration
+// ═══════════════════════════════════════════════════════════════
+
+class ArcadeEngine {
+  constructor(containerId, theme = {}) {
+    this.container = document.getElementById(containerId);
+    if (!this.container) throw new Error(`Container #${containerId} not found`);
+    this.container.style.position = 'relative';
+
+    this.theme = theme;
+
+    // Core systems
+    this.loop = new GameLoop();
+    this.renderer = new Renderer(this.container, { maxDPR: 2, perspective: theme.perspective || 0 });
+    this.camera = new Camera(this.renderer);
+    this.input = new InputManager(this.container);
+    this.audio = new AudioEngine();
+    this.physics = new PhysicsWorld({ gravity: theme.gravity ?? 800 });
+
+    // Effects
+    this.particles = new ParticleSystem(this.loop.perfTier === 'low' ? 100 : this.loop.perfTier === 'medium' ? 250 : 500);
+    this.particles.gravity = theme.gravity ?? 400;
+    this.floatingNumbers = new FloatingNumbers();
+    this.trails = new TrailSystem();
+    this.pulseRings = new PulseRing();
+    this.overlay = new OverlayFX(this.renderer);
+
+    // Register systems with game loop
+    this.loop.addSystem({
+      update: (dt) => {
+        TweenManager.update(dt);
+        this.camera.update(dt);
+        this.particles.update(dt);
+        this.floatingNumbers.update(dt);
+        this.trails.update(dt);
+        this.pulseRings.update(dt);
+        this.overlay.update(dt);
+      },
+    });
+
+    // Audio theme
+    if (theme.soundTheme) {
+      this._audioPreset = applyAudioTheme(this.audio, theme.soundTheme);
+    }
+
+    // Track active game
+    this._game = null;
+
+    // First interaction initializes audio
+    const initAudio = () => {
+      this.audio.init();
+      this.audio.resume();
+      document.removeEventListener('pointerdown', initAudio);
+      document.removeEventListener('keydown', initAudio);
+    };
+    document.addEventListener('pointerdown', initAudio, { once: false });
+    document.addEventListener('keydown', initAudio, { once: false });
+  }
+
+  /** Register a game (implements ArcadeGame interface) */
+  setGame(game) {
+    this._game = game;
+
+    // Add game as a system for update/render
+    this.loop.addSystem({
+      update: (dt, loop) => {
+        if (game.update) game.update(dt, loop);
+      },
+      render: (alpha, loop) => {
+        const ctx = this.renderer.fgCtx;
+        this.renderer.clear();
+
+        // Apply camera transform
+        this.camera.applyTransform(ctx);
+
+        // Game render
+        if (game.render) game.render(ctx, alpha, this);
+
+        // Effects render (in world space)
+        this.trails.render(ctx);
+        this.particles.render(ctx, this.renderer);
+        this.floatingNumbers.render(ctx);
+        this.pulseRings.render(ctx);
+
+        this.camera.restoreTransform(ctx);
+
+        // Screen-space effects
+        this.camera.renderEffects(ctx);
+        this.overlay.render(ctx);
+      },
+    });
+
+    // Initialize game
+    if (game.init) game.init(this);
+  }
+
+  /** Start the engine */
+  start() {
+    this.loop.start();
+    return this;
+  }
+
+  /** Stop the engine */
+  stop() {
+    this.loop.stop();
+    this.audio.stopAll();
+  }
+
+  /** Convenience: show win result */
+  showWin(multiplier, amount, currency = '$') {
+    const w = this.renderer.width / 2;
+    const h = this.renderer.height / 2;
+
+    this.overlay.showResult(
+      `${multiplier.toFixed(2)}x`,
+      `+${currency}${amount.toFixed(2)}`,
+      { color: this.theme.secondary || '#22c55e', font: this.theme.titleFont }
+    );
+
+    this.floatingNumbers.win(w, h + 50, amount, currency);
+
+    // Particle burst
+    this.particles.emit(30, ParticlePresets.burst(w, h, {
+      sprites: this.theme.winParticles || ['✨','🌟','💫'],
+      speed: 180,
+    }));
+
+    // Confetti
+    if (multiplier >= 2) {
+      this.particles.emit(40, ParticlePresets.confetti(this.renderer.width, this.renderer.height, {
+        colors: this.theme.confettiColors,
+      }));
+    }
+
+    // Camera
+    this.camera.zoomPulse(0.05 + multiplier * 0.01, 0.3);
+
+    // Audio
+    if (multiplier >= 5) {
+      this.audio.bigWin();
+      Haptics.win();
+    } else {
+      this.audio.win(Math.min(multiplier / 5, 1));
+      Haptics.medium();
+    }
+
+    // Pulse ring
+    this.pulseRings.emit(w, h, {
+      color: this.theme.secondary || '#22c55e',
+      maxRadius: 100 + multiplier * 10,
+    });
+  }
+
+  /** Convenience: show loss result */
+  showLoss(amount, currency = '$') {
+    const w = this.renderer.width / 2;
+    const h = this.renderer.height / 2;
+
+    this.overlay.showResult('BUST', `-${currency}${amount.toFixed(2)}`, {
+      color: this.theme.danger || '#ef4444',
+      font: this.theme.titleFont,
+    });
+
+    this.floatingNumbers.loss(w, h + 50, amount, currency);
+    this.camera.impact(0.6);
+    this.audio.lose();
+    Haptics.error();
+  }
+
+  /** Get performance-aware particle count */
+  particleCount(ideal) {
+    if (this.loop.perfTier === 'low') return Math.ceil(ideal * 0.2);
+    if (this.loop.perfTier === 'medium') return Math.ceil(ideal * 0.5);
+    return ideal;
+  }
+
+  destroy() {
+    this.loop.destroy();
+    this.renderer.destroy();
+    this.input.destroy();
+    this.audio.destroy();
+    this.particles.clear();
+    TweenManager.killAll();
+  }
+}
+
+
+// ── Base Game Interface ──
+
+class ArcadeGame {
+  init(engine) {}       // Called once when game is registered
+  update(dt, loop) {}   // Called at fixed timestep (60Hz)
+  render(ctx, alpha, engine) {}  // Called every frame
+  onBet(amount) {}      // Called when bet is placed
+  onPlay(fairRNG) {}    // Called when play button pressed
+  onReset() {}          // Called to reset for next round
+}
+
+
+
+
+// ═══════════════════════════════════════
+// TEST: Plinko with ARCADE Engine
+// ═══════════════════════════════════════
+
+const THEME = {
+  primary: '#0284c7', secondary: '#67e8f9', accent: '#38bdf8',
+  danger: '#ef4444', glow: '#67e8f9', soundTheme: 'arctic',
+  titleFont: "'Quicksand', sans-serif",
+  winParticles: ['❄️','💎','✨','🌟','⭐'],
+  confettiColors: ['#67e8f9','#38bdf8','#0284c7','#ffffff','#a5f3fc'],
+};
+
+const ROWS = 12;
+const SLOTS = ROWS + 1;
+const MULTS = [10, 5, 3, 1.5, 1, 0.5, 0.3, 0.5, 1, 1.5, 3, 5, 10];
+const PEG_RADIUS = 4;
+const BALL_RADIUS = 7;
+
+let engine, world, ball, pegs = [], slotPositions = [];
+let balance = 1000, currentBet = 1, playing = false, dropping = false;
+let pegW, pegH, startX, startY;
+
+function initGame() {
+  const container = document.getElementById('gc');
+  engine = new ArcadeEngine('gc', THEME);
+
+  const w = engine.renderer.width;
+  const h = engine.renderer.height;
+
+  world = engine.physics;
+  world.gravity = 600;
+  world.bounds = { x: 0, y: 0, w, h };
+
+  // Calculate peg layout
+  pegW = w * 0.8;
+  pegH = h * 0.7;
+  startX = (w - pegW) / 2;
+  startY = h * 0.1;
+
+  // Create peg bodies (static)
+  for (let row = 0; row < ROWS; row++) {
+    const cols = row + 3;
+    const rowW = pegW * (cols / (ROWS + 2));
+    const rowX = (w - rowW) / 2;
+    const rowY = startY + (row / ROWS) * pegH;
+
+    for (let col = 0; col < cols; col++) {
+      const x = rowX + (col / (cols - 1)) * rowW;
+      const y = rowY;
+      const peg = world.add(new PhysicsBody({
+        x, y, radius: PEG_RADIUS, isStatic: true,
+        restitution: 0.5, data: { type: 'peg', row, col },
+      }));
+      pegs.push(peg);
+    }
+  }
+
+  // Slot positions
+  const slotY = startY + pegH + 30;
+  for (let i = 0; i < SLOTS; i++) {
+    const x = startX + (i / (SLOTS - 1)) * pegW;
+    slotPositions.push({ x, y: slotY, mult: MULTS[i] });
+  }
+
+  // Create a trail for the ball
+  engine._ballTrailId = engine.trails.create({ color: '#67e8f9', width: 4, glow: '#67e8f9', fadeRate: 4 });
+
+  // Draw background (static layer)
+  drawBackground();
+
+  // Register render
+  engine.loop.addSystem({
+    update: (dt) => {
+      if (ball && dropping) {
+        world.step(dt);
+        engine.trails.addPoint(engine._ballTrailId, ball.x, ball.y);
+
+        // Check if ball has settled
+        if (ball.y >= startY + pegH + 15) {
+          dropping = false;
+          resolveDrop();
+        }
+      }
+    },
+    render: (alpha) => {
+      const ctx = engine.renderer.fgCtx;
+
+      // Draw pegs with glow
+      for (const peg of pegs) {
+        engine.renderer.drawCircle(ctx, peg.x, peg.y, PEG_RADIUS, '#38bdf8', {
+          glow: '#67e8f9', glowSize: 6, alpha: 0.8,
+        });
+      }
+
+      // Draw slots
+      for (let i = 0; i < slotPositions.length; i++) {
+        const s = slotPositions[i];
+        const sw = pegW / SLOTS * 0.8;
+        ctx.save();
+        const isHigh = s.mult >= 3;
+        ctx.fillStyle = isHigh ? 'rgba(103,232,249,0.15)' : 'rgba(255,255,255,0.05)';
+        engine.renderer.roundRect(ctx, s.x - sw/2, s.y - 12, sw, 24, 4);
+        ctx.fill();
+        ctx.font = `700 ${isHigh ? 12 : 10}px 'Quicksand',sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = isHigh ? '#67e8f9' : '#94a3b8';
+        ctx.fillText(s.mult + 'x', s.x, s.y);
+        ctx.restore();
+      }
+
+      // Draw ball
+      if (ball) {
+        engine.renderer.drawSprite(ctx, '💎', ball.x, ball.y, 14, {
+          scale: 1 + Math.sin(engine.loop.elapsed * 4) * 0.1,
+        });
+      }
+    },
+  });
+
+  engine.start();
+}
+
+function drawBackground() {
+  const ctx = engine.renderer.bgCtx;
+  const w = engine.renderer.width;
+  const h = engine.renderer.height;
+
+  // Gradient
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#000810');
+  g.addColorStop(1, '#001830');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle radial glow
+  const rg = ctx.createRadialGradient(w * 0.3, h * 0.2, 0, w * 0.3, h * 0.2, w * 0.5);
+  rg.addColorStop(0, 'rgba(103,232,249,0.04)');
+  rg.addColorStop(1, 'transparent');
+  ctx.fillStyle = rg;
+  ctx.fillRect(0, 0, w, h);
+}
+
+function dropBall() {
+  if (playing || dropping) return;
+  if (balance < currentBet) return;
+  balance -= currentBet;
+  updateUI();
+
+  playing = true;
+  dropping = true;
+
+  engine.audio.init();
+  engine.audio.resume();
+  engine.audio.press();
+
+  // Create ball at top center with slight random offset
+  const w = engine.renderer.width;
+  ball = world.add(new PhysicsBody({
+    x: w / 2 + (Math.random() - 0.5) * 4,
+    y: startY - 20,
+    radius: BALL_RADIUS,
+    mass: 1,
+    restitution: 0.4,
+    friction: 0.998,
+    onCollide: (other, speed) => {
+      if (other && other.data && other.data.type === 'peg') {
+        const row = other.data.row;
+        const pan = (other.x / engine.renderer.width - 0.5) * 2;
+        engine.audio.tick(row, pan);
+        engine.particles.emit(3, ParticlePresets.sparkle(other.x, other.y, {
+          color: '#67e8f9', radius: 6,
+        }));
+        Haptics.light();
+      }
+    },
+  }));
+}
+
+function resolveDrop() {
+  // Find closest slot
+  let minDist = Infinity, slotIdx = 0;
+  for (let i = 0; i < slotPositions.length; i++) {
+    const dx = Math.abs(ball.x - slotPositions[i].x);
+    if (dx < minDist) { minDist = dx; slotIdx = i; }
+  }
+
+  const mult = slotPositions[slotIdx].mult;
+  const winAmount = currentBet * mult;
+  const profit = winAmount - currentBet;
+
+  // Snap ball to slot
+  tween(ball).to({ x: slotPositions[slotIdx].x, y: slotPositions[slotIdx].y }, 200, 'outBounce');
+
+  setTimeout(() => {
+    // Show result
+    if (mult >= 1) {
+      balance += winAmount;
+      engine.showWin(mult, profit > 0 ? profit : winAmount, '$');
+    } else {
+      engine.showLoss(currentBet - winAmount, '$');
+    }
+
+    updateUI();
+
+    // Cleanup
+    setTimeout(() => {
+      if (ball) { world.remove(ball); ball = null; }
+      playing = false;
+      engine.trails.kill(engine._ballTrailId);
+      engine._ballTrailId = engine.trails.create({ color: '#67e8f9', width: 4, glow: '#67e8f9', fadeRate: 4 });
+    }, 1500);
+  }, 300);
+}
+
+function updateUI() {
+  document.getElementById('bal-val').textContent = '$' + balance.toFixed(2);
+  document.getElementById('bet-val').textContent = '$' + currentBet.toFixed(2);
+}
+
+function setBet(v) {
+  currentBet = v;
+  updateUI();
+  document.querySelectorAll('.bb').forEach(b => {
+    b.classList.toggle('on', parseFloat(b.dataset.bet) === v);
+  });
+}
+
+// Init on DOM ready
+requestAnimationFrame(() => requestAnimationFrame(() => initGame()));
+
+</script>
+</body>
+</html>

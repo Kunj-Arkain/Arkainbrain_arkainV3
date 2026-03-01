@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ARCADE — Dragon Dice</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:linear-gradient(135deg,#1a0000,#2d0a00);color:#fde8d0;min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.hdr{text-align:center;padding:12px 12px 4px}
+.hdr h1{font-family:'Bebas Neue';font-size:26px;letter-spacing:3px;background:linear-gradient(135deg,#dc2626,#f59e0b);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr .sub{font-size:10px;color:#a0522d;margin-top:2px}
+.stats{display:flex;justify-content:space-around;padding:6px 16px;font-size:11px;background:rgba(220,38,38,0.04);border-top:1px solid rgba(245,158,11,0.12);border-bottom:1px solid rgba(245,158,11,0.12)}
+.stats .lbl{color:#a0522d}.stats .val{font-weight:700;color:#f59e0b;font-variant-numeric:tabular-nums}.stats .val.neg{color:#ef4444}
+#game-container{flex:1;position:relative;min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+.dice-scene{width:120px;height:120px;perspective:400px;margin:10px auto}
+.dice-cube{width:100%;height:100%;position:relative;transform-style:preserve-3d;transition:transform .1s}
+.dice-face{position:absolute;width:120px;height:120px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:900;color:#fff;backface-visibility:hidden;border:2px solid rgba(245,158,11,0.3)}
+.f1{background:linear-gradient(135deg,#7f1d1d,#991b1b);transform:rotateY(0deg) translateZ(60px)}
+.f2{background:linear-gradient(135deg,#78350f,#92400e);transform:rotateY(90deg) translateZ(60px)}
+.f3{background:linear-gradient(135deg,#7f1d1d,#991b1b);transform:rotateY(180deg) translateZ(60px)}
+.f4{background:linear-gradient(135deg,#78350f,#92400e);transform:rotateY(-90deg) translateZ(60px)}
+.f5{background:linear-gradient(135deg,#7f1d1d,#991b1b);transform:rotateX(90deg) translateZ(60px)}
+.f6{background:linear-gradient(135deg,#78350f,#92400e);transform:rotateX(-90deg) translateZ(60px)}
+.dice-shadow{width:80px;height:16px;background:radial-gradient(ellipse,rgba(0,0,0,0.4),transparent);margin:0 auto;border-radius:50%;transition:all .3s}
+.result-display{font-family:'Bebas Neue';font-size:56px;letter-spacing:4px;text-align:center;min-height:70px;display:flex;align-items:center;justify-content:center;transition:all .3s}
+.result-display.win{color:#22c55e;text-shadow:0 0 20px rgba(34,197,94,0.5)}
+.result-display.lose{color:#ef4444;text-shadow:0 0 20px rgba(239,68,68,0.5)}
+.slider-area{width:90%;max-width:340px;margin:8px auto;padding:0 10px}
+.slider-track{position:relative;height:8px;border-radius:4px;background:linear-gradient(90deg,#22c55e var(--split),#ef4444 var(--split));margin:8px 0;cursor:pointer}
+.slider-thumb{position:absolute;top:50%;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#fbbf24);border:3px solid #fff;box-shadow:0 0 12px rgba(245,158,11,0.5);cursor:grab;transition:box-shadow .15s}
+.slider-thumb:active{cursor:grabbing;box-shadow:0 0 20px rgba(245,158,11,0.8)}
+.slider-labels{display:flex;justify-content:space-between;font-size:10px;color:#a0522d}
+.pred-row{display:flex;justify-content:center;gap:16px;font-size:12px;margin:4px 0}
+.pred-row span{padding:4px 12px;border-radius:6px;cursor:pointer;border:1px solid rgba(245,158,11,0.15);transition:all .15s}
+.pred-row span.active{background:rgba(245,158,11,0.15);border-color:#f59e0b;color:#f59e0b}
+.pred-row span:hover{border-color:#f59e0b}
+.mult-display{text-align:center;font-size:13px;color:#a0522d;margin:4px 0}
+.mult-display b{color:#f59e0b;font-size:16px}
+.ctrls{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(220,38,38,0.03);border-top:1px solid rgba(245,158,11,0.1)}
+.brow{display:flex;gap:4px;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(245,158,11,0.15);background:transparent;color:#fde8d0;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover,.bb.on{background:#dc2626;border-color:#dc2626;color:#fff}
+.play-btn{width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#dc2626,#f59e0b);color:#fff;font-family:'Bebas Neue';font-size:18px;letter-spacing:2px;cursor:pointer;text-transform:uppercase;transition:all .15s}
+.play-btn:hover{box-shadow:0 4px 20px rgba(220,38,38,0.3)}.play-btn:disabled{opacity:.4;cursor:not-allowed}
+.float-num{position:absolute;pointer-events:none;font-weight:800;animation:floatUp .8s ease-out forwards;z-index:10}
+@keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-40px) scale(1.3)}}
+canvas#fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>🐉 DRAGON DICE</h1><div class="sub">Over/Under · 3D Roll · Provably Fair</div></div>
+<div class="stats">
+  <div><span class="lbl">Balance </span><span class="val" id="s-bal">$1,000.00</span></div>
+  <div><span class="lbl">Bet </span><span class="val" id="s-bet">$1.00</span></div>
+  <div><span class="lbl">Profit </span><span class="val" id="s-pft">$0.00</span></div>
+</div>
+<div id="game-container">
+  <canvas id="fx"></canvas>
+  <div class="result-display" id="result"></div>
+  <div class="dice-scene"><div class="dice-cube" id="dice-cube">
+    <div class="dice-face f1">⚀</div><div class="dice-face f2">⚁</div><div class="dice-face f3">⚂</div>
+    <div class="dice-face f4">⚃</div><div class="dice-face f5">⚄</div><div class="dice-face f6">⚅</div>
+  </div></div>
+  <div class="dice-shadow" id="dice-shadow"></div>
+  <div class="pred-row" id="pred-row">
+    <span class="active" onclick="setPred('over')">📈 Over</span>
+    <span onclick="setPred('under')">📉 Under</span>
+  </div>
+  <div class="slider-area">
+    <div class="slider-track" id="slider-track" style="--split:50%">
+      <div class="slider-thumb" id="slider-thumb" style="left:50%"></div>
+    </div>
+    <div class="slider-labels"><span>1</span><span>50</span><span>100</span></div>
+  </div>
+  <div class="mult-display">Win chance: <b id="win-chance">50%</b> · Multiplier: <b id="mult-val">1.94x</b></div>
+</div>
+<div class="ctrls">
+  <div class="brow" id="bet-row"></div>
+  <button class="play-btn" id="play-btn" onclick="rollDice()">🎲 ROLL</button>
+</div>
+
+<script>
+"use strict";
+const clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+function rgba(hex,a){const n=parseInt(hex.replace('#',''),16);return`rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`}
+
+// Audio
+let audioCtx=null,audioOk=false;
+async function initAudio(){if(audioOk)return;try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();audioOk=true}catch(e){}}
+function playTone(o={}){if(!audioOk)return;const c=audioCtx,s=c.currentTime+(o.delay||0);const osc=c.createOscillator();osc.type=o.type||'sine';osc.frequency.value=o.freq||440;if(o.freqEnd){osc.frequency.setValueAtTime(o.freq,s);osc.frequency.exponentialRampToValueAtTime(Math.max(o.freqEnd,20),s+(o.dur||.1))}const env=c.createGain();env.gain.setValueAtTime(0,s);env.gain.linearRampToValueAtTime(o.vol||.2,s+.005);env.gain.linearRampToValueAtTime(0,s+(o.dur||.1));osc.connect(env);env.connect(c.destination);osc.start(s);osc.stop(s+(o.dur||.1)+.05)}
+function sfxRoll(){for(let i=0;i<6;i++)playTone({freq:200+Math.random()*200,dur:.04,type:'triangle',vol:.06,delay:i*.06})}
+function sfxWin(){for(let i=0;i<4;i++)playTone({freq:[523,659,784,1047][i],dur:.2,type:'triangle',vol:.2,delay:i*.08})}
+function sfxLose(){playTone({freq:200,freqEnd:80,dur:.3,type:'sawtooth',vol:.15})}
+function sfxSlam(){playTone({freq:120,dur:.12,type:'square',vol:.15});const c=audioCtx;if(!audioOk)return;const now=c.currentTime,sz=c.sampleRate*.08,buf=c.createBuffer(1,sz,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<sz;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const env=c.createGain();env.gain.setValueAtTime(.12,now);env.gain.exponentialRampToValueAtTime(.001,now+.08);src.connect(env);env.connect(c.destination);src.start(now);src.stop(now+.08)}
+
+// FX Canvas
+const fxC=document.getElementById('fx'),fxX=fxC.getContext('2d');
+function resizeFx(){const r=document.getElementById('game-container').getBoundingClientRect();fxC.width=r.width;fxC.height=r.height}
+new ResizeObserver(resizeFx).observe(document.getElementById('game-container'));resizeFx();
+let particles=[];
+function spawnP(x,y,color,n=20){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=60+Math.random()*150;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,sz:3+Math.random()*5,color})}}
+let lastT=performance.now();
+function fxLoop(now){requestAnimationFrame(fxLoop);const dt=Math.min((now-lastT)/1000,.05);lastT=now;fxX.clearRect(0,0,fxC.width,fxC.height);for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt*2.5;if(p.life<=0){particles.splice(i,1);continue}p.vy+=400*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;fxX.globalAlpha=p.life;fxX.fillStyle=p.color;fxX.beginPath();fxX.arc(p.x,p.y,p.sz*p.life,0,Math.PI*2);fxX.fill()}}
+requestAnimationFrame(fxLoop);
+
+// State
+let balance=1000,currentBet=1,profit=0;
+let prediction='over',threshold=50,rolling=false;
+const bets=[0.10,0.25,0.50,1,2,5,10,25];
+const betRow=document.getElementById('bet-row');
+bets.forEach(b=>{const btn=document.createElement('button');btn.className='bb'+(b===1?' on':'');btn.textContent='$'+b.toFixed(2);btn.onclick=()=>{currentBet=b;document.querySelectorAll('.bb').forEach(x=>x.classList.remove('on'));btn.classList.add('on');updateUI()};betRow.appendChild(btn)});
+
+function updateUI(){document.getElementById('s-bal').textContent='$'+balance.toFixed(2);document.getElementById('s-bet').textContent='$'+currentBet.toFixed(2);const p=document.getElementById('s-pft');p.textContent=(profit>=0?'+$':'-$')+Math.abs(profit).toFixed(2);p.className='val'+(profit<0?' neg':'');updateSliderUI()}
+function updateSliderUI(){
+  const chance=prediction==='over'?(100-threshold):threshold;
+  const mult=chance>0?Math.floor((97/chance)*100)/100:0;
+  document.getElementById('win-chance').textContent=chance+'%';
+  document.getElementById('mult-val').textContent=mult.toFixed(2)+'x';
+  document.getElementById('slider-track').style.setProperty('--split',threshold+'%');
+  document.getElementById('slider-thumb').style.left=threshold+'%';
+}
+
+function setPred(p){prediction=p;document.querySelectorAll('#pred-row span').forEach(s=>s.classList.remove('active'));document.querySelector(`#pred-row span[onclick="setPred('${p}')"]`).classList.add('active');updateSliderUI()}
+
+// Slider drag
+const track=document.getElementById('slider-track'),thumb=document.getElementById('slider-thumb');
+let dragging=false;
+function updateThreshold(e){const r=track.getBoundingClientRect();const x=clamp(((e.touches?e.touches[0].clientX:e.clientX)-r.left)/r.width*100,2,98);threshold=Math.round(x);updateSliderUI()}
+thumb.addEventListener('pointerdown',e=>{e.preventDefault();dragging=true;thumb.setPointerCapture(e.pointerId)});
+document.addEventListener('pointermove',e=>{if(dragging)updateThreshold(e)});
+document.addEventListener('pointerup',()=>dragging=false);
+track.addEventListener('click',e=>updateThreshold(e));
+
+// 3D Dice rotations for each face
+const faceRot={1:'rotateX(0deg) rotateY(0deg)',2:'rotateX(0deg) rotateY(-90deg)',3:'rotateX(0deg) rotateY(180deg)',4:'rotateX(0deg) rotateY(90deg)',5:'rotateX(-90deg) rotateY(0deg)',6:'rotateX(90deg) rotateY(0deg)'};
+
+async function rollDice(){
+  if(rolling||balance<currentBet)return;
+  await initAudio();if(audioCtx?.state==='suspended')await audioCtx.resume();
+  rolling=true;balance-=currentBet;updateUI();
+  const btn=document.getElementById('play-btn');btn.disabled=true;
+  document.getElementById('result').textContent='';document.getElementById('result').className='result-display';
+
+  // Result (1-100)
+  const result=Math.floor(Math.random()*100)+1;
+  const chance=prediction==='over'?(100-threshold):threshold;
+  const mult=chance>0?Math.floor((97/chance)*100)/100:0;
+  const won=prediction==='over'?result>threshold:result<=threshold;
+
+  // Animate cube spinning
+  const cube=document.getElementById('dice-cube'),shadow=document.getElementById('dice-shadow');
+  sfxRoll();
+  let spinX=0,spinY=0;
+  const spinInterval=setInterval(()=>{spinX+=30+Math.random()*20;spinY+=25+Math.random()*15;cube.style.transform=`rotateX(${spinX}deg) rotateY(${spinY}deg)`;shadow.style.transform=`scaleX(${.5+Math.random()*.5})`;shadow.style.opacity=.3+Math.random()*.3},50);
+
+  // After spin, land on a face
+  const displayFace=Math.ceil(Math.random()*6);
+  setTimeout(()=>{
+    clearInterval(spinInterval);
+    // Slam down
+    sfxSlam();
+    cube.style.transition='transform .4s cubic-bezier(.2,.8,.3,1.2)';
+    cube.style.transform=faceRot[displayFace];
+    shadow.style.transform='scaleX(1.2)';shadow.style.opacity='.5';
+    setTimeout(()=>{shadow.style.transform='scaleX(.8)';shadow.style.opacity='.3'},200);
+
+    // Show result
+    setTimeout(()=>{
+      cube.style.transition='transform .1s';
+      const rd=document.getElementById('result');
+      rd.textContent=result;
+      rd.className='result-display '+(won?'win':'lose');
+
+      const gc=document.getElementById('game-container'),gr=gc.getBoundingClientRect();
+      if(won){
+        const winAmt=currentBet*mult-currentBet;balance+=currentBet*mult;profit+=winAmt;
+        sfxWin();
+        spawnP(gr.width/2,gr.height*.3,'#22c55e',30);spawnP(gr.width/2,gr.height*.3,'#f59e0b',20);
+        if(navigator.vibrate)navigator.vibrate([10,20,10,20,30]);
+        // Float
+        const fl=document.createElement('div');fl.className='float-num';fl.style.cssText=`color:#22c55e;font-size:18px;left:${gr.width/2-30}px;top:${gr.height*.25}px`;fl.textContent='+$'+(currentBet*mult-currentBet).toFixed(2);gc.appendChild(fl);setTimeout(()=>fl.remove(),800);
+      }else{
+        profit-=currentBet;
+        sfxLose();
+        spawnP(gr.width/2,gr.height*.3,'#ef4444',25);
+        if(navigator.vibrate)navigator.vibrate([100]);
+        gc.style.animation='shakeD .3s ease-out';setTimeout(()=>gc.style.animation='',300);
+      }
+      updateUI();rolling=false;btn.disabled=false;
+    },400);
+  },600);
+}
+
+const ss=document.createElement('style');ss.textContent='@keyframes shakeD{0%,100%{transform:translate(0)}20%{transform:translate(-6px,3px)}40%{transform:translate(5px,-2px)}60%{transform:translate(-3px,2px)}}';document.head.appendChild(ss);
+updateUI();
+</script>
+</body>
+</html>

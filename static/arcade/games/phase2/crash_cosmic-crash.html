@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ARCADE Engine — Crash Demo</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800;900&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#030014;color:#e2e8f0;min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.hdr{text-align:center;padding:12px 12px 6px}
+.hdr h1{font-family:'Orbitron';font-size:18px;font-weight:800;background:linear-gradient(135deg,#6366f1,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr .sub{font-size:10px;color:#64748b;margin-top:2px;font-family:'Orbitron'}
+.stats{display:flex;justify-content:space-around;padding:6px 16px;font-size:11px;background:rgba(99,102,241,0.05);border-top:1px solid rgba(99,102,241,0.1);border-bottom:1px solid rgba(99,102,241,0.1)}
+.stats .lbl{color:#64748b}.stats .val{font-weight:700;color:#06b6d4;font-variant-numeric:tabular-nums}
+.stats .val.neg{color:#ef4444}
+#game-container{flex:1;position:relative;min-height:300px;overflow:hidden;cursor:crosshair}
+.ctrls{padding:10px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(99,102,241,0.04);border-top:1px solid rgba(99,102,241,0.1)}
+.brow{display:flex;gap:4px;flex-wrap:wrap}
+.bb{padding:6px 12px;border-radius:6px;border:1px solid rgba(99,102,241,0.15);background:transparent;color:#e2e8f0;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.bb:hover,.bb.on{background:#6366f1;border-color:#6366f1;color:#fff;box-shadow:0 0 12px rgba(99,102,241,0.3)}
+.play-btn{width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#06b6d4);color:#fff;font-family:'Orbitron';font-size:15px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all .15s}
+.play-btn:hover{transform:scale(1.01);box-shadow:0 4px 20px rgba(99,102,241,0.3)}
+.play-btn:active{transform:scale(.98)}
+.play-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.play-btn.cashout{background:linear-gradient(135deg,#f59e0b,#22c55e);animation:pulseBtn .6s ease-in-out infinite alternate}
+@keyframes pulseBtn{from{box-shadow:0 0 10px rgba(34,197,94,0.3)}to{box-shadow:0 0 25px rgba(34,197,94,0.5)}}
+.debug{position:fixed;top:4px;right:4px;font-size:9px;color:#475569;font-family:monospace;pointer-events:none;text-align:right}
+.hist{padding:6px 16px 10px;max-height:80px;overflow-y:auto}
+.hist h3{font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px}
+.hrow{display:flex;gap:8px;font-size:10px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
+.hrow .m{font-weight:700;min-width:50px}.hrow .m.w{color:#22c55e}.hrow .m.l{color:#ef4444}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>⚡ COSMIC CRASH</h1>
+  <div class="sub">ARCADE ENGINE DEMO · ALL SYSTEMS ACTIVE</div>
+</div>
+<div class="stats">
+  <div><span class="lbl">Balance </span><span class="val" id="s-bal">$1,000.00</span></div>
+  <div><span class="lbl">Bet </span><span class="val" id="s-bet">$1.00</span></div>
+  <div><span class="lbl">Profit </span><span class="val" id="s-pft">$0.00</span></div>
+</div>
+<div id="game-container"></div>
+<div class="ctrls">
+  <div class="brow" id="bet-row"></div>
+  <button class="play-btn" id="play-btn" onclick="onPlayClick()">LAUNCH 🚀</button>
+</div>
+<div class="hist"><h3>History</h3><div id="hist-list"></div></div>
+<div class="debug" id="debug"></div>
+
+<!-- ═══ ENGINE FILES (inlined for demo) ═══ -->
+<script>
+// === engine.js ===
+"use strict";
+const lerp=(a,b,t)=>a+(b-a)*t,clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+const rng=(a,b)=>a+Math.random()*(b-a),rngI=(a,b)=>Math.floor(rng(a,b+1));
+const TAU=Math.PI*2,dist=(x1,y1,x2,y2)=>Math.hypot(x2-x1,y2-y1);
+function hexRgb(h){const n=parseInt(h.replace('#',''),16);return[(n>>16)&255,(n>>8)&255,n&255]}
+function rgba(hex,a){const[r,g,b]=hexRgb(hex);return`rgba(${r},${g},${b},${a})`}
+
+const Ease={
+  linear:t=>t,outCubic:t=>(--t)*t*t+1,outQuart:t=>1-(--t)*t*t*t,
+  outQuint:t=>1+(--t)*t*t*t*t,outExpo:t=>t===1?1:1-Math.pow(2,-10*t),
+  outElastic:t=>t===0||t===1?t:Math.pow(2,-10*t)*Math.sin((t-.1)*5*Math.PI)+1,
+  outBounce:t=>{if(t<1/2.75)return 7.5625*t*t;if(t<2/2.75){t-=1.5/2.75;return 7.5625*t*t+.75}if(t<2.5/2.75){t-=2.25/2.75;return 7.5625*t*t+.9375}t-=2.625/2.75;return 7.5625*t*t+.984375},
+  outBack:t=>{const s=1.70158,t1=t-1;return t1*t1*((s+1)*t1+s)+1},
+  inOutCubic:t=>t<.5?4*t*t*t:(t-1)*(2*t-2)*(2*t-2)+1,
+  springOut:t=>{const s=1-t;return 1-s*s*Math.cos(s*Math.PI*3)},
+};
+const resolveEase=e=>typeof e==='function'?e:Ease[e]||Ease.outCubic;
+
+class Spring{
+  constructor(o={}){this.val=o.from||0;this.target=o.to!==undefined?o.to:this.val;this.vel=0;this.stiff=o.stiffness||180;this.damp=o.damping||12;this.mass=o.mass||1;this.prec=o.precision||.001;this.settled=false}
+  setTarget(t){this.target=t;this.settled=false}
+  update(dt){if(this.settled)return this.val;const d=this.val-this.target;const a=(-this.stiff*d-this.damp*this.vel)/this.mass;this.vel+=a*dt;this.val+=this.vel*dt;if(Math.abs(this.vel)<this.prec&&Math.abs(d)<this.prec){this.val=this.target;this.vel=0;this.settled=true}return this.val}
+  impulse(f){this.vel+=f;this.settled=false}
+  snap(v){this.val=v;this.target=v;this.vel=0;this.settled=true}
+}
+
+// Tween
+class Tween{
+  constructor(tgt){this.tgt=tgt;this._s=[];this._i=0;this._e=0;this._run=false;this._done=false;this._onDone=null;this._onTick=null}
+  to(p,ms,ease){this._s.push({t:'to',p,dur:ms/1000,ease:resolveEase(ease||'outCubic'),sv:null});return this}
+  delay(ms){this._s.push({t:'delay',dur:ms/1000});return this}
+  call(fn){this._s.push({t:'call',fn});return this}
+  onComplete(fn){this._onDone=fn;return this}
+  onUpdate(fn){this._onTick=fn;return this}
+  start(){this._run=true;this._done=false;this._i=0;this._e=0;this._initStep(0);TweenMgr.add(this);return this}
+  stop(){this._run=false;this._done=true;TweenMgr.remove(this)}
+  _initStep(i){if(i<0||i>=this._s.length)return;const s=this._s[i];this._e=0;if(s.t==='to'){s.sv={};for(const k of Object.keys(s.p))s.sv[k]=this.tgt[k]||0}}
+  update(dt){
+    if(!this._run)return false;const s=this._s[this._i];if(!s){this._fin();return false}
+    if(s.t==='call'){s.fn(this.tgt);this._i++;if(this._i<this._s.length)this._initStep(this._i);else this._fin();return true}
+    this._e+=dt;const dur=s.dur||.001;let t=clamp(this._e/dur,0,1);
+    if(s.t==='to'){const e=s.ease(t);for(const k of Object.keys(s.p))this.tgt[k]=lerp(s.sv[k],s.p[k],e)}
+    if(this._onTick)this._onTick(this.tgt,t);
+    if(t>=1){this._i++;if(this._i<this._s.length)this._initStep(this._i);else this._fin()}
+    return true;
+  }
+  _fin(){this._run=false;this._done=true;TweenMgr.remove(this);if(this._onDone)this._onDone(this.tgt)}
+}
+const TweenMgr={_l:[],add(t){if(!this._l.includes(t))this._l.push(t)},remove(t){const i=this._l.indexOf(t);if(i!==-1)this._l.splice(i,1)},update(dt){for(let i=this._l.length-1;i>=0;i--)this._l[i].update(dt)},killAll(){for(const t of this._l)t.stop();this._l.length=0}};
+const tw=t=>new Tween(t);
+
+// GameLoop
+class GameLoop{
+  constructor(o={}){
+    this.fixedDt=1000/(o.physicsHz||60);this.maxDelta=100;this.acc=0;this.time=0;this.frame=0;this.raf=null;this.running=false;this.paused=false;this.timeScale=1;
+    this.updateFn=o.update||(()=>{});this.renderFn=o.render||(()=>{});this.fixedFn=o.fixedUpdate||(()=>{});
+    this.fps=60;this._fpsN=0;this._fpsT=0;
+    this._vis=()=>{document.hidden?this.paused=true:(()=>{this.paused=false;this._last=performance.now();this.acc=0})()};
+    this._tick=this._tick.bind(this);document.addEventListener('visibilitychange',this._vis);
+  }
+  start(){if(this.running)return;this.running=true;this._last=performance.now();this.raf=requestAnimationFrame(this._tick)}
+  _tick(now){
+    if(!this.running)return;this.raf=requestAnimationFrame(this._tick);if(this.paused)return;
+    let raw=now-this._last;this._last=now;if(raw>this.maxDelta)raw=this.maxDelta;
+    const delta=raw*this.timeScale;this.time+=delta;this.frame++;
+    this._fpsN++;this._fpsT+=raw;if(this._fpsT>=500){this.fps=(this._fpsN/this._fpsT)*1000;this._fpsN=0;this._fpsT=0}
+    this.acc+=delta;let steps=0;
+    while(this.acc>=this.fixedDt&&steps<4){this.fixedFn(this.fixedDt/1000);this.acc-=this.fixedDt;steps++}
+    this.updateFn(delta/1000);this.renderFn(delta/1000);
+  }
+}
+
+// === renderer (inline) ===
+class Renderer{
+  constructor(el){
+    this.el=el;this.dpr=Math.min(window.devicePixelRatio||1,2);this.W=0;this.H=0;
+    this.fg=document.createElement('canvas');this.fg.style.cssText='position:absolute;inset:0;width:100%;height:100%';
+    el.appendChild(this.fg);this.fgx=this.fg.getContext('2d');
+    this._sp={};
+    new ResizeObserver(()=>this._resize()).observe(el);this._resize();
+  }
+  _resize(){const r=this.el.getBoundingClientRect();this.W=r.width;this.H=r.height;this.fg.width=Math.round(r.width*this.dpr);this.fg.height=Math.round(r.height*this.dpr);this.fgx.setTransform(this.dpr,0,0,this.dpr,0,0)}
+  clear(){this.fgx.clearRect(0,0,this.W,this.H)}
+  get ctx(){return this.fgx}
+  sprite(emoji,sz=32){const k=emoji+'_'+sz;if(this._sp[k])return this._sp[k];const s=sz*this.dpr,c=document.createElement('canvas');c.width=s;c.height=s;const x=c.getContext('2d');x.font=`${s*.8}px serif`;x.textAlign='center';x.textBaseline='middle';x.fillText(emoji,s/2,s/2);this._sp[k]=c;return c}
+  drawSprite(e,x,y,sz=32,rot=0,a=1,sx=1,sy=1){const sp=this.sprite(e,sz),c=this.fgx;c.save();c.globalAlpha=a;c.translate(x,y);if(rot)c.rotate(rot);if(sx!==1||sy!==1)c.scale(sx,sy);c.drawImage(sp,-sz/2,-sz/2,sz,sz);c.restore()}
+  text(txt,x,y,o={}){const c=this.fgx;c.save();c.font=`${o.weight||'700'} ${o.size||14}px ${o.font||"'Orbitron',sans-serif"}`;c.textAlign=o.align||'center';c.textBaseline=o.base||'middle';c.globalAlpha=o.alpha!==undefined?o.alpha:1;if(o.glow){c.shadowColor=o.glow;c.shadowBlur=o.glowR||10}if(o.stroke){c.strokeStyle=o.stroke;c.lineWidth=o.strokeW||3;c.strokeText(txt,x,y)}c.fillStyle=o.color||'#fff';c.fillText(txt,x,y);c.restore()}
+  circle(x,y,r,fill,stroke,lw){const c=this.fgx;c.beginPath();c.arc(x,y,r,0,TAU);if(fill){c.fillStyle=fill;c.fill()}if(stroke){c.strokeStyle=stroke;c.lineWidth=lw||1;c.stroke()}}
+  radialGlow(x,y,r,color,alpha=.5){const c=this.fgx,g=c.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,rgba(color,alpha));g.addColorStop(1,rgba(color,0));c.fillStyle=g;c.fillRect(x-r,y-r,r*2,r*2)}
+  flash(color,alpha){if(alpha<=0)return;const c=this.fgx;c.save();c.globalAlpha=alpha;c.fillStyle=color;c.fillRect(0,0,this.W,this.H);c.restore()}
+  vignette(i=.3){const c=this.fgx,cx=this.W/2,cy=this.H/2,r=Math.max(this.W,this.H)*.7;const g=c.createRadialGradient(cx,cy,r*.3,cx,cy,r);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,`rgba(0,0,0,${i})`);c.fillStyle=g;c.fillRect(0,0,this.W,this.H)}
+  borderGlow(color,alpha,w=4){if(alpha<=0)return;const c=this.fgx;c.save();c.globalAlpha=alpha;c.strokeStyle=color;c.lineWidth=w;c.shadowColor=color;c.shadowBlur=20;c.strokeRect(1,1,this.W-2,this.H-2);c.restore()}
+}
+
+// === particles (inline) ===
+class Particles{
+  constructor(R,o={}){
+    this.R=R;const N=o.max||500;this.max=N;this.gravity=o.gravity||0;this.wind=o.wind||0;
+    this.x=new Float32Array(N);this.y=new Float32Array(N);this.vx=new Float32Array(N);this.vy=new Float32Array(N);
+    this.life=new Float32Array(N);this.maxLife=new Float32Array(N);this.sz=new Float32Array(N);this.szEnd=new Float32Array(N);
+    this.rot=new Float32Array(N);this.rotV=new Float32Array(N);this.a=new Float32Array(N);this.aEnd=new Float32Array(N);
+    this.ci=new Uint8Array(N);this.type=new Uint8Array(N);
+    this.emojis=[];this._eSp=[];this.n=0;
+  }
+  setEmojis(l){this.emojis=l;this._eSp=l.map(e=>this.R.sprite(e,24))}
+  emit(o){
+    const count=o.count||1;for(let i=0;i<count;i++){
+      if(this.n>=this.max)return;const idx=this.n++;
+      let px=o.x||0,py=o.y||0;
+      if(o.spread){const a=Math.random()*TAU,r=Math.random()*o.spread;px+=Math.cos(a)*r;py+=Math.sin(a)*r}
+      this.x[idx]=px;this.y[idx]=py;
+      if(o.angle!==undefined){const a=o.angle+(o.angleSpread?(Math.random()-.5)*o.angleSpread:0);const s=(o.speed||100)+(o.speedVar?(Math.random()-.5)*o.speedVar:0);this.vx[idx]=Math.cos(a)*s;this.vy[idx]=Math.sin(a)*s}
+      else{const s=(o.speed||100)+(o.speedVar?(Math.random()-.5)*o.speedVar:0);const a=Math.random()*TAU;this.vx[idx]=Math.cos(a)*s;this.vy[idx]=Math.sin(a)*s}
+      this.maxLife[idx]=(o.life||1)+(o.lifeVar?(Math.random()-.5)*o.lifeVar:0);this.life[idx]=this.maxLife[idx];
+      this.sz[idx]=o.size||4;this.szEnd[idx]=o.sizeEnd!==undefined?o.sizeEnd:0;
+      this.rot[idx]=Math.random()*TAU;this.rotV[idx]=o.rotSpeed||(Math.random()-.5)*4;
+      this.a[idx]=o.alpha!==undefined?o.alpha:1;this.aEnd[idx]=o.alphaEnd!==undefined?o.alphaEnd:0;
+      this.ci[idx]=o.colorIdx!==undefined?o.colorIdx:Math.floor(Math.random()*Math.max(1,this.emojis.length));
+      this.type[idx]=o.emoji?2:o.square?1:0;
+    }
+  }
+  update(dt){for(let i=this.n-1;i>=0;i--){this.life[i]-=dt;if(this.life[i]<=0){this.n--;if(i<this.n){this.x[i]=this.x[this.n];this.y[i]=this.y[this.n];this.vx[i]=this.vx[this.n];this.vy[i]=this.vy[this.n];this.life[i]=this.life[this.n];this.maxLife[i]=this.maxLife[this.n];this.sz[i]=this.sz[this.n];this.szEnd[i]=this.szEnd[this.n];this.rot[i]=this.rot[this.n];this.rotV[i]=this.rotV[this.n];this.a[i]=this.a[this.n];this.aEnd[i]=this.aEnd[this.n];this.ci[i]=this.ci[this.n];this.type[i]=this.type[this.n]}continue}this.vy[i]+=this.gravity*dt;this.x[i]+=this.vx[i]*dt;this.y[i]+=this.vy[i]*dt;this.rot[i]+=this.rotV[i]*dt}}
+  render(colors=['#fff']){const c=this.R.fgx;for(let i=0;i<this.n;i++){const t=1-(this.life[i]/this.maxLife[i]);const sz=lerp(this.sz[i],this.szEnd[i],t);const al=lerp(this.a[i],this.aEnd[i],t);if(al<=.01||sz<=.1)continue;c.save();c.globalAlpha=al;c.translate(this.x[i],this.y[i]);c.rotate(this.rot[i]);if(this.type[i]===2&&this._eSp.length>0){c.drawImage(this._eSp[this.ci[i]%this._eSp.length],-sz/2,-sz/2,sz,sz)}else{c.fillStyle=colors[this.ci[i]%colors.length];c.beginPath();c.arc(0,0,sz/2,0,TAU);c.fill()}c.restore()}}
+  clear(){this.n=0}
+}
+
+// === camera (inline) ===
+class Camera{
+  constructor(){this.shakeX=0;this.shakeY=0;this._si=0;this._sd=0;this._sf=0;this._st=0;this.zoom=1;this._zs=new Spring({from:1,to:1,stiffness:200,damping:15});this.flashColor='#fff';this.flashAlpha=0;this.flashDecay=0;this.glowColor='#fff';this.glowAlpha=0;this.glowDecay=0;this.vignetteVal=0;this.vignetteTgt=0}
+  shake(i=10,d=.3,f=30){this._si=i;this._sd=i/d;this._sf=f;this._st=0}
+  heavyShake(){this.shake(15,.5,25)}
+  lightShake(){this.shake(4,.15,40)}
+  zoomTo(z){this._zs.setTarget(z)}
+  screenFlash(c='#fff',a=.6,d=3){this.flashColor=c;this.flashAlpha=a;this.flashDecay=d}
+  borderPulse(c='#fff',a=.5,d=2){this.glowColor=c;this.glowAlpha=a;this.glowDecay=d}
+  setVignette(v){this.vignetteTgt=v}
+  update(dt){
+    if(this._si>0){this._st+=dt;this._si-=this._sd*dt;if(this._si<0)this._si=0;this.shakeX=Math.sin(this._st*this._sf*TAU)*(Math.random()*.4+.6)*this._si;this.shakeY=Math.cos(this._st*this._sf*TAU*1.1)*(Math.random()*.4+.6)*this._si}else{this.shakeX=0;this.shakeY=0}
+    this.zoom=this._zs.update(dt);
+    if(this.flashAlpha>0){this.flashAlpha-=this.flashDecay*dt;if(this.flashAlpha<0)this.flashAlpha=0}
+    if(this.glowAlpha>0){this.glowAlpha-=this.glowDecay*dt;if(this.glowAlpha<0)this.glowAlpha=0}
+    this.vignetteVal=lerp(this.vignetteVal,this.vignetteTgt,1-Math.exp(-4*dt));
+  }
+  applyTransform(ctx,W,H){const cx=W/2,cy=H/2;ctx.translate(cx+this.shakeX,cy+this.shakeY);ctx.scale(this.zoom,this.zoom);ctx.translate(-cx,-cy)}
+  renderFX(R){if(this.flashAlpha>0)R.flash(this.flashColor,this.flashAlpha);if(this.glowAlpha>0)R.borderGlow(this.glowColor,this.glowAlpha);if(this.vignetteVal>.01)R.vignette(this.vignetteVal)}
+}
+
+// === audio (inline) ===
+class AudioEngine{
+  constructor(){this.ctx=null;this.master=null;this.ch={};this.muted=false;this._ok=false}
+  async init(){if(this._ok)return;try{this.ctx=new(window.AudioContext||window.webkitAudioContext)();this.master=this.ctx.createGain();this.master.gain.value=.7;this.master.connect(this.ctx.destination);for(const c of['sfx','ui']){const g=this.ctx.createGain();g.gain.value=.5;g.connect(this.master);this.ch[c]=g}this._ok=true}catch(e){}}
+  async ensure(){if(!this._ok)await this.init();if(this.ctx&&this.ctx.state==='suspended')try{await this.ctx.resume()}catch(e){}}
+  tone(o={}){if(!this._ok||this.muted)return;const c=this.ctx,now=c.currentTime,start=now+(o.delay||0);const osc=c.createOscillator();osc.type=o.type||'sine';osc.frequency.value=o.freq||440;if(o.freqEnd){osc.frequency.setValueAtTime(o.freq||440,start);osc.frequency.exponentialRampToValueAtTime(Math.max(o.freqEnd,20),start+(o.attack||.01)+(o.decay||.1)+(o.sustain||0))}const env=c.createGain();const v=o.volume||.3;env.gain.setValueAtTime(0,start);env.gain.linearRampToValueAtTime(v,start+(o.attack||.01));env.gain.linearRampToValueAtTime(v*.6,start+(o.attack||.01)+(o.decay||.1));env.gain.linearRampToValueAtTime(0,start+(o.attack||.01)+(o.decay||.1)+(o.sustain||0)+(o.release||.1));const pn=c.createStereoPanner();pn.pan.value=clamp(o.pan||0,-1,1);osc.connect(env);env.connect(pn);pn.connect(this.ch[o.channel||'sfx']||this.master);const dur=(o.attack||.01)+(o.decay||.1)+(o.sustain||0)+(o.release||.1)+.1;osc.start(start);osc.stop(start+dur)}
+  noise(o={}){if(!this._ok||this.muted)return;const c=this.ctx,now=c.currentTime,dur=o.duration||.2;const sz=c.sampleRate*dur,buf=c.createBuffer(1,sz,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<sz;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const env=c.createGain();env.gain.setValueAtTime(o.volume||.1,now);env.gain.exponentialRampToValueAtTime(.001,now+dur);const f=c.createBiquadFilter();f.type=o.filterType||'bandpass';f.frequency.value=o.filterFreq||1000;f.Q.value=o.filterQ||.5;src.connect(f);f.connect(env);env.connect(this.ch.sfx||this.master);src.start(now);src.stop(now+dur)}
+  tick(p=0){this.tone({freq:600+p*100,decay:.03,release:.02,type:'triangle',volume:.12})}
+  win(){for(let i=0;i<4;i++)this.tone({freq:[523,659,784,1047][i],attack:.01,decay:.15,release:.2,type:'triangle',volume:.2,delay:i*.09})}
+  bigWin(){for(let i=0;i<5;i++)this.tone({freq:[523,659,784,1047,1319][i],attack:.01,decay:.2,sustain:.05,release:.3,type:'triangle',volume:.25,delay:i*.1});this.noise({duration:.5,volume:.05,filterType:'highpass',filterFreq:6000})}
+  crash(){this.noise({duration:.4,volume:.2,filterType:'lowpass',filterFreq:500,filterQ:2});this.tone({freq:80,freqEnd:30,attack:.01,decay:.3,release:.2,type:'sawtooth',volume:.2})}
+  coinDrop(n=5){for(let i=0;i<n;i++)this.tone({freq:2000+Math.random()*1000,decay:.05+Math.random()*.05,release:.03,type:'sine',volume:.08,delay:i*.05+Math.random()*.02,pan:Math.random()*2-1})}
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// CRASH GAME — Full implementation on ARCADE engine
+// ═══════════════════════════════════════════════════════════════
+
+const R = new Renderer(document.getElementById('game-container'));
+const PS = new Particles(R, { max: 500, gravity: 300 });
+PS.setEmojis(['✨','⭐','💫','🌟','🚀','⚡']);
+const CAM = new Camera();
+const SFX = new AudioEngine();
+
+// ── Game State ──
+let balance = 1000, currentBet = 1, profit = 0;
+let state = 'idle'; // idle, rising, cashed, crashed
+let crashPoint = 0, mult = 1, riseTime = 0;
+const graphPoints = [];
+let rocketY = 0;
+const rocketSpring = new Spring({ from: 0, to: 0, stiffness: 300, damping: 20 });
+const multSpring = new Spring({ from: 1, to: 1, stiffness: 400, damping: 18 });
+
+// Stars background
+const stars = [];
+for (let i = 0; i < 80; i++) stars.push({ x: Math.random(), y: Math.random(), s: rng(.5, 2.5), sp: rng(.02, .08), b: rng(.2, .8) });
+
+// ── Bets ──
+const bets = [0.10, 0.25, 0.50, 1.00, 2.00, 5.00, 10.00, 25.00];
+const betRow = document.getElementById('bet-row');
+bets.forEach((b, i) => {
+  const btn = document.createElement('button');
+  btn.className = 'bb' + (b === 1 ? ' on' : '');
+  btn.textContent = '$' + b.toFixed(2);
+  btn.onclick = () => { currentBet = b; document.querySelectorAll('.bb').forEach(x => x.classList.remove('on')); btn.classList.add('on'); updateUI(); };
+  betRow.appendChild(btn);
+});
+
+function updateUI() {
+  document.getElementById('s-bal').textContent = '$' + balance.toFixed(2);
+  document.getElementById('s-bet').textContent = '$' + currentBet.toFixed(2);
+  const pEl = document.getElementById('s-pft');
+  pEl.textContent = (profit >= 0 ? '+$' : '-$') + Math.abs(profit).toFixed(2);
+  pEl.className = 'val' + (profit < 0 ? ' neg' : '');
+}
+
+function addHistory(m, amt) {
+  const list = document.getElementById('hist-list');
+  const row = document.createElement('div');
+  row.className = 'hrow';
+  const isWin = m > 0;
+  row.innerHTML = `<span class="m ${isWin ? 'w' : 'l'}">${isWin ? m.toFixed(2) + 'x' : 'BUST'}</span><span style="color:#64748b">${isWin ? '+' : ''}$${amt.toFixed(2)}</span>`;
+  list.prepend(row);
+  if (list.children.length > 20) list.lastChild.remove();
+}
+
+// ── Play ──
+async function onPlayClick() {
+  await SFX.ensure();
+  const btn = document.getElementById('play-btn');
+
+  if (state === 'rising') {
+    // CASH OUT
+    state = 'cashed';
+    const winAmt = currentBet * mult - currentBet;
+    balance += currentBet * mult;
+    profit += winAmt;
+    updateUI();
+    addHistory(mult, winAmt);
+
+    // Effects
+    CAM.screenFlash('#22c55e', .3, 4);
+    CAM.borderPulse('#22c55e', .6, 2);
+    CAM.lightShake();
+    rocketSpring.impulse(-20);
+
+    const cx = R.W / 2, ry = rocketY;
+    PS.emit({ x: cx, y: ry, count: 40, speed: 200, speedVar: 100, life: 1, lifeVar: .4, size: 10, sizeEnd: 0, alpha: 1, alphaEnd: 0, emoji: true });
+    PS.emit({ x: cx, y: ry, count: 20, angle: -Math.PI / 2, angleSpread: 1.5, speed: 300, speedVar: 100, life: .8, size: 6, sizeEnd: 0, alpha: 1, alphaEnd: 0 });
+
+    if (mult >= 5) SFX.bigWin(); else { SFX.win(); SFX.coinDrop(Math.min(mult * 3, 15)); }
+    if (navigator.vibrate) navigator.vibrate([10, 20, 10, 20, 30]);
+
+    btn.className = 'play-btn';
+    btn.textContent = 'LAUNCH 🚀';
+    btn.disabled = true;
+    setTimeout(() => { state = 'idle'; btn.disabled = false; graphPoints.length = 0; }, 1500);
+    return;
+  }
+
+  if (state !== 'idle') return;
+  if (balance < currentBet) return;
+
+  // Start round
+  balance -= currentBet;
+  updateUI();
+
+  // Determine crash point (provably fair)
+  const r = Math.random();
+  const he = 0.03;
+  crashPoint = r < he ? 1.0 : Math.min((1 - he) / (1 - r), 100);
+
+  state = 'rising';
+  mult = 1;
+  riseTime = 0;
+  graphPoints.length = 0;
+  multSpring.snap(1);
+  rocketSpring.snap(0);
+  CAM.zoomTo(1);
+  CAM.setVignette(0);
+
+  btn.className = 'play-btn cashout';
+  btn.textContent = '💰 CASH OUT';
+}
+
+// ── Game Loop ──
+const loop = new GameLoop({
+  fixedUpdate(dt) {
+    if (state === 'rising') {
+      riseTime += dt;
+      mult += 0.01 + mult * 0.004;
+      multSpring.setTarget(mult);
+
+      // Graph
+      const gx = Math.min(riseTime * 40, R.W * 0.8);
+      const gy = R.H - 40 - Math.log(mult) * (R.H * 0.3);
+      graphPoints.push({ x: gx, y: gy });
+      if (graphPoints.length > 500) graphPoints.shift();
+
+      // Camera zoom creep
+      const zoomTarget = 1 + Math.min(mult * 0.015, 0.3);
+      CAM.zoomTo(zoomTarget);
+      CAM.setVignette(Math.min((mult - 1) * 0.05, 0.4));
+
+      // Audio ticks at multiplier milestones
+      if (mult > 1 && Math.floor(mult * 10) !== Math.floor((mult - 0.01 - mult * 0.004) * 10)) {
+        SFX.tick(Math.min(mult, 10));
+      }
+
+      // CRASH
+      if (mult >= crashPoint) {
+        state = 'crashed';
+        mult = crashPoint;
+
+        CAM.heavyShake();
+        CAM.screenFlash('#ef4444', .5, 3);
+        CAM.borderPulse('#ef4444', .7, 2);
+        CAM.zoomTo(1.15);
+
+        const cx = R.W / 2;
+        PS.emit({ x: cx, y: rocketY, count: 60, speed: 250, speedVar: 120, life: 1.2, lifeVar: .5, size: 12, sizeEnd: 0, alpha: 1, alphaEnd: 0, emoji: true });
+        PS.emit({ x: cx, y: rocketY, count: 30, speed: 150, life: .6, size: 4, sizeEnd: 0, alpha: .8, alphaEnd: 0 });
+
+        SFX.crash();
+        if (navigator.vibrate) navigator.vibrate([100]);
+
+        profit -= currentBet;
+        updateUI();
+        addHistory(0, -currentBet);
+
+        const btn = document.getElementById('play-btn');
+        btn.className = 'play-btn';
+        btn.textContent = 'LAUNCH 🚀';
+        btn.disabled = true;
+        setTimeout(() => { state = 'idle'; btn.disabled = false; graphPoints.length = 0; CAM.zoomTo(1); CAM.setVignette(0); }, 2000);
+      }
+    }
+
+    // Springs
+    multSpring.update(dt);
+    rocketSpring.update(dt);
+    CAM.update(dt);
+    PS.update(dt);
+    TweenMgr.update(dt);
+  },
+
+  render(dt) {
+    R.clear();
+    const c = R.ctx, W = R.W, H = R.H;
+
+    c.save();
+    CAM.applyTransform(c, W, H);
+
+    // ── Background stars ──
+    for (const s of stars) {
+      s.y -= s.sp * dt;
+      if (s.y < 0) { s.y = 1; s.x = Math.random(); }
+      const blink = .5 + Math.sin(performance.now() * .002 + s.x * 100) * .3;
+      c.globalAlpha = s.b * blink * (state === 'rising' ? 1 : 0.5);
+      c.fillStyle = '#c4b5fd';
+      c.fillRect(s.x * W, s.y * H, s.s, s.s);
+    }
+    c.globalAlpha = 1;
+
+    // ── Graph ──
+    if (graphPoints.length > 1) {
+      const ox = 40, oy = 20;
+      c.beginPath();
+      c.moveTo(ox + graphPoints[0].x, graphPoints[0].y);
+      for (let i = 1; i < graphPoints.length; i++) {
+        c.lineTo(ox + graphPoints[i].x, graphPoints[i].y);
+      }
+      // Gradient fill
+      const last = graphPoints[graphPoints.length - 1];
+      c.lineTo(ox + last.x, H - 40);
+      c.lineTo(ox + graphPoints[0].x, H - 40);
+      c.closePath();
+
+      const isUp = state === 'rising';
+      const col = state === 'crashed' ? '#ef4444' : state === 'cashed' ? '#22c55e' : '#6366f1';
+      const grad = c.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, rgba(col, .3));
+      grad.addColorStop(1, rgba(col, 0));
+      c.fillStyle = grad;
+      c.fill();
+
+      // Line
+      c.beginPath();
+      c.moveTo(ox + graphPoints[0].x, graphPoints[0].y);
+      for (let i = 1; i < graphPoints.length; i++) c.lineTo(ox + graphPoints[i].x, graphPoints[i].y);
+      c.strokeStyle = col;
+      c.lineWidth = 2.5;
+      c.shadowColor = col;
+      c.shadowBlur = 10;
+      c.stroke();
+      c.shadowBlur = 0;
+
+      // Dot at tip
+      if (graphPoints.length > 0) {
+        const tip = graphPoints[graphPoints.length - 1];
+        R.radialGlow(ox + tip.x, tip.y, 25, col, .4);
+        R.circle(ox + tip.x, tip.y, 5, col);
+      }
+    }
+
+    // ── Rocket ──
+    const cx = W / 2;
+    const baseY = H * 0.7;
+    let ry;
+    if (state === 'rising') {
+      ry = baseY - Math.log(mult) * (H * 0.25) + rocketSpring.val;
+    } else if (state === 'crashed') {
+      ry = baseY - Math.log(mult) * (H * 0.25) + rocketSpring.val;
+    } else {
+      ry = baseY;
+    }
+    rocketY = ry;
+
+    const rocketRot = state === 'rising' ? Math.sin(riseTime * 3) * 0.1 : state === 'crashed' ? 0.5 : 0;
+    const rocketScale = state === 'crashed' ? 0.5 : 1 + Math.min(mult * 0.02, 0.3);
+    const emoji = state === 'crashed' ? '💥' : '🚀';
+    R.drawSprite(emoji, cx, ry, 48, rocketRot, 1, rocketScale, rocketScale);
+
+    // Trail particles (while rising)
+    if (state === 'rising') {
+      PS.emit({
+        x: cx, y: ry + 20,
+        count: 2,
+        spread: 5,
+        angle: Math.PI / 2,
+        angleSpread: 0.5,
+        speed: 50 + mult * 10,
+        speedVar: 30,
+        life: .5,
+        lifeVar: .2,
+        size: 6 + mult * 0.5,
+        sizeEnd: 0,
+        alpha: .8,
+        alphaEnd: 0,
+        emoji: true,
+      });
+      // Ambient glow under rocket
+      R.radialGlow(cx, ry + 15, 30 + mult * 3, '#6366f1', .15 + mult * .02);
+    }
+
+    // ── Multiplier text ──
+    const displayMult = multSpring.val;
+    const multColor = state === 'crashed' ? '#ef4444' : state === 'cashed' ? '#22c55e' : (mult > 3 ? '#f59e0b' : '#e2e8f0');
+    const multSize = 48 + Math.min(mult * 2, 20);
+    R.text(displayMult.toFixed(2) + 'x', cx, H * 0.35, {
+      size: multSize,
+      color: multColor,
+      weight: '900',
+      glow: multColor,
+      glowR: 15 + mult * 2,
+      stroke: rgba(multColor, .2),
+      strokeW: 4,
+    });
+
+    // Status
+    if (state === 'idle') {
+      R.text('Place a bet and launch', cx, H * 0.55, { size: 12, color: '#64748b', weight: '400' });
+    } else if (state === 'crashed') {
+      R.text('CRASHED @ ' + crashPoint.toFixed(2) + 'x', cx, H * 0.55, { size: 14, color: '#ef4444', glow: '#ef4444', glowR: 10 });
+    } else if (state === 'cashed') {
+      R.text('CASHED OUT!', cx, H * 0.55, { size: 14, color: '#22c55e', glow: '#22c55e', glowR: 10 });
+    }
+
+    // ── Particles ──
+    PS.render(['#6366f1', '#06b6d4', '#c4b5fd', '#f59e0b', '#22c55e']);
+
+    c.restore();
+
+    // ── Screen effects (outside camera transform) ──
+    CAM.renderFX(R);
+
+    // Debug
+    document.getElementById('debug').textContent =
+      `${Math.round(loop.fps)} fps | ${PS.n} particles | ${TweenMgr._l.length} tweens | ${state}`;
+  }
+});
+
+loop.start();
+updateUI();
+</script>
+</body>
+</html>
