@@ -461,7 +461,16 @@ def compress_conversation(messages, target_tokens=None, model=None):
 # ═══════════════════════════════════════════════════════════
 
 def _validate_structure(msgs):
+    """Validate tool call/result pairing.
+    
+    v4 fix: Instead of DROPPING groups with missing tool results
+    (which causes a snowball — CrewAI re-adds them, we drop again,
+    log explodes), we now INJECT placeholder results for any missing
+    tool_call_ids. This keeps the conversation structure valid and
+    prevents the exponential re-drop cycle.
+    """
     result = []
+    _warned_ids = set()  # rate-limit warnings per call_id
     i = 0
     n = len(msgs)
     while i < n:
@@ -483,20 +492,36 @@ def _validate_structure(msgs):
                 j += 1
 
             found_ids = {tm.get("tool_call_id") for tm in tool_msgs if tm.get("tool_call_id")}
+            missing = expected_ids - found_ids
 
-            if expected_ids and not expected_ids.issubset(found_ids):
-                logger.warning(f"Dropping broken tool group: missing {expected_ids - found_ids}")
-                i = j
-                continue
+            if missing:
+                # v4: Inject placeholders instead of dropping the whole group
+                new_missing = missing - _warned_ids
+                if new_missing:
+                    logger.warning(f"Injecting {len(new_missing)} placeholder tool results for missing IDs")
+                    _warned_ids.update(new_missing)
+                for mid in missing:
+                    tool_msgs.append({
+                        "role": "tool",
+                        "tool_call_id": mid,
+                        "content": "[Tool result not available — placeholder injected by context guard]",
+                    })
+
+            # Also strip any tool results that don't match expected IDs
+            valid_tool_msgs = [tm for tm in tool_msgs if tm.get("tool_call_id") in expected_ids]
 
             result.append(msg)
-            result.extend(tool_msgs)
+            result.extend(valid_tool_msgs)
             i = j
         elif role == "tool":
             if result and result[-1].get("role") == "assistant" and _has_tool_calls(result[-1]):
                 result.append(msg)
+            elif result and result[-1].get("role") == "tool":
+                # Allow consecutive tool messages (they belong to the same group)
+                result.append(msg)
             else:
-                logger.warning("Dropping orphan tool message")
+                # Truly orphan — drop silently (one warning per batch)
+                pass
             i += 1
         else:
             result.append(msg)
